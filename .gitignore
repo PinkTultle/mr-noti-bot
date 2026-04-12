@@ -41,3 +41,9 @@ config.yaml
 
 # CDK environment file
 cdk/.env
+
+# rkit runtime state (session-local)
+.rkit/
+
+# Claude Code local settings (session-local)
+.claude/settings.local.json
