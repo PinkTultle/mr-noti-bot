@@ -13,6 +13,7 @@ type GitLabClient interface {
 type MergeRequestWithApprovals struct {
 	MergeRequest *gitlab.MergeRequest
 	ApprovedBy   []string
+	ProjectID    int
 }
 
 type gitLabClient struct {
@@ -93,6 +94,7 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 				allMRs = append(allMRs, &MergeRequestWithApprovals{
 					MergeRequest: mr,
 					ApprovedBy:   approvedBy,
+					ProjectID:    projectID,
 				})
 			}
 

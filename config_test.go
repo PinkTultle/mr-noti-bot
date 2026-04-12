@@ -67,6 +67,30 @@ func TestLoadConfig(t *testing.T) {
 		}, config.Authors)
 	})
 
+	// Test notification-related environment variables
+	t.Run("notification env variables", func(t *testing.T) {
+		env := &MockEnv{values: map[string]string{
+			"GITLAB_TOKEN":             "token",
+			"SLACK_WEBHOOK_URL":        "webhook",
+			"CONFIG_PATH":              "NONEXISTING.yaml",
+			"PROJECTS":                 "1",
+			"NOTIFICATION_MODE":        "dm",
+			"NOTIFICATION_WEBHOOK_URL": "https://hooks.slack.com/test",
+			"NOTIFICATION_BOT_TOKEN":   "xoxb-test-token",
+			"STATE_PATH":               "/data/state.json",
+		}}
+		config, err := loadConfig(env)
+		assert.NoError(t, err)
+		require.NotNil(t, config.Notification)
+		assert.Equal(t, "dm", config.Notification.Mode)
+		require.NotNil(t, config.Notification.Webhook)
+		assert.Equal(t, "https://hooks.slack.com/test", config.Notification.Webhook.URL)
+		require.NotNil(t, config.Notification.Bot)
+		assert.Equal(t, "xoxb-test-token", config.Notification.Bot.Token)
+		require.NotNil(t, config.State)
+		assert.Equal(t, "/data/state.json", config.State.Path)
+	})
+
 	// Test loading config from file
 	t.Run("loading from config file", func(t *testing.T) {
 		env := &MockEnv{values: map[string]string{

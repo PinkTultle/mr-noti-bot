@@ -17,10 +17,13 @@ type Config struct {
 	Slack struct {
 		WebhookURL string `yaml:"webhook_url"`
 	} `yaml:"slack"`
-	Projects     []ConfigProject `yaml:"projects"`
-	Groups       []ConfigGroup   `yaml:"groups"`
-	CronSchedule string          `yaml:"cron_schedule"`
-	Authors      []ConfigAuthor  `yaml:"authors"`
+	Projects     []ConfigProject     `yaml:"projects"`
+	Groups       []ConfigGroup       `yaml:"groups"`
+	CronSchedule string              `yaml:"cron_schedule"`
+	Authors      []ConfigAuthor      `yaml:"authors"`
+	Notification *NotificationConfig `yaml:"notification"`
+	UserMapping  []UserMappingEntry  `yaml:"user_mapping"`
+	State        *StateConfig        `yaml:"state"`
 }
 
 type ConfigGroup struct {
@@ -34,6 +37,29 @@ type ConfigProject struct {
 type ConfigAuthor struct {
 	ID       int    `yaml:"id"`
 	Username string `yaml:"username"`
+}
+
+type NotificationConfig struct {
+	Mode    string         `yaml:"mode"`
+	Webhook *WebhookConfig `yaml:"webhook"`
+	Bot     *BotConfig     `yaml:"bot"`
+}
+
+type WebhookConfig struct {
+	URL string `yaml:"url"`
+}
+
+type BotConfig struct {
+	Token string `yaml:"token"`
+}
+
+type UserMappingEntry struct {
+	GitLabUsername string `yaml:"gitlab_username"`
+	SlackID       string `yaml:"slack_id"`
+}
+
+type StateConfig struct {
+	Path string `yaml:"path"`
 }
 
 type Env interface {
@@ -105,6 +131,40 @@ func loadConfig(env Env) (*Config, error) {
 		if err != nil {
 			return nil, fmt.Errorf("error parsing AUTHORS environment variable: %v", err)
 		}
+	}
+
+	if notifMode := env.Getenv("NOTIFICATION_MODE"); notifMode != "" {
+		if config.Notification == nil {
+			config.Notification = &NotificationConfig{}
+		}
+		config.Notification.Mode = notifMode
+	}
+
+	if notifWebhookURL := env.Getenv("NOTIFICATION_WEBHOOK_URL"); notifWebhookURL != "" {
+		if config.Notification == nil {
+			config.Notification = &NotificationConfig{}
+		}
+		if config.Notification.Webhook == nil {
+			config.Notification.Webhook = &WebhookConfig{}
+		}
+		config.Notification.Webhook.URL = notifWebhookURL
+	}
+
+	if notifBotToken := env.Getenv("NOTIFICATION_BOT_TOKEN"); notifBotToken != "" {
+		if config.Notification == nil {
+			config.Notification = &NotificationConfig{}
+		}
+		if config.Notification.Bot == nil {
+			config.Notification.Bot = &BotConfig{}
+		}
+		config.Notification.Bot.Token = notifBotToken
+	}
+
+	if statePath := env.Getenv("STATE_PATH"); statePath != "" {
+		if config.State == nil {
+			config.State = &StateConfig{}
+		}
+		config.State.Path = statePath
 	}
 
 	cronSchedule := env.Getenv("CRON_SCHEDULE")

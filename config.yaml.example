@@ -14,3 +14,22 @@ authors:
   - username: "janedoe"
   - username: "johndoe"
   - id: 918
+
+# Smart notification (optional — omit for legacy behavior)
+notification:
+  mode: "webhook"                # "webhook" (channel mentions) or "dm" (bot DM)
+  webhook:
+    url: https://hooks.slack.com/services/your-webhook-url
+  # bot:                         # Uncomment for DM mode
+  #   token: "xoxb-your-bot-token"
+
+# GitLab-to-Slack user mapping (required for smart notification)
+user_mapping:
+  - gitlab_username: "janedoe"
+    slack_id: "U01234ABCD"
+  - gitlab_username: "johndoe"
+    slack_id: "U05678EFGH"
+
+# Notification state file for deduplication (optional)
+state:
+  path: "/data/notification_state.json"

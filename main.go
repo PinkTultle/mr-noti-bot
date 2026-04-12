@@ -108,6 +108,17 @@ func execute(config *Config) error {
 		return fmt.Errorf("error fetching opened merge requests: %w", err)
 	}
 
+	// Legacy mode: no notification config → existing behavior
+	if config.Notification == nil {
+		return executeLegacy(config, mrs)
+	}
+
+	// Smart notification mode
+	return executeSmartNotification(config, mrs)
+}
+
+// executeLegacy preserves the original behavior: filter by author, format summary, send to webhook.
+func executeLegacy(config *Config, mrs []*MergeRequestWithApprovals) error {
 	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
 
 	if len(mrs) == 0 {
@@ -117,13 +128,59 @@ func execute(config *Config) error {
 
 	summary := formatMergeRequestsSummary(mrs)
 
-	slackClient := &slackClient{webhookURL: config.Slack.WebhookURL}
-	err = sendSlackMessage(slackClient, summary)
-	if err != nil {
+	sc := &slackClient{webhookURL: config.Slack.WebhookURL}
+	if err := sendSlackMessage(sc, summary); err != nil {
 		return fmt.Errorf("error sending Slack message: %w", err)
 	}
 
 	log.Println("Successfully sent merge request summary to Slack.")
+	return nil
+}
+
+// executeSmartNotification classifies MRs, deduplicates, resolves targets, and sends notifications.
+func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) error {
+	if len(mrs) == 0 {
+		log.Println("No opened merge requests found.")
+		return nil
+	}
+
+	// 1. Classify MRs by status
+	classified := classifyMergeRequests(mrs)
+
+	// 2. Load previous state for deduplication
+	statePath := ""
+	if config.State != nil {
+		statePath = config.State.Path
+	}
+	prevState, err := loadState(statePath)
+	if err != nil {
+		log.Printf("Warning: could not load state: %v", err)
+		prevState = &NotificationState{Notifications: make(map[string]MRNotificationRecord)}
+	}
+
+	// 3. Filter to only MRs whose status changed
+	changed := filterChangedMRs(classified, prevState)
+
+	if len(changed) == 0 {
+		log.Println("No MR status changes detected.")
+		return saveState(statePath, buildNewState(classified))
+	}
+
+	// 4. Resolve notification targets via user mapping
+	notifications := resolveNotificationTargets(changed, config.UserMapping)
+
+	// 5. Send via configured notifier
+	notifier := newNotifier(config)
+	if err := notifier.Send(notifications); err != nil {
+		return fmt.Errorf("error sending notifications: %w", err)
+	}
+
+	// 6. Save current state
+	if err := saveState(statePath, buildNewState(classified)); err != nil {
+		log.Printf("Warning: could not save state: %v", err)
+	}
+
+	log.Printf("Sent %d notifications for %d changed MRs.", len(notifications), len(changed))
 	return nil
 }
 
