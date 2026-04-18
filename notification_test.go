@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"log"
+	"os"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -79,7 +80,7 @@ func TestResolveNotificationTargets_MappingMissing(t *testing.T) {
 	// Capture log output to verify warning
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	defer log.SetOutput(os.Stderr)
 
 	author := &gitlab.BasicUser{Username: "unknown_user", Name: "Unknown"}
 	cmr := newTestClassifiedMR(author, nil, StatusNeedsReview, []TargetRole{RoleAuthor})
@@ -126,7 +127,7 @@ func TestResolveNotificationTargets_EmptyMapping(t *testing.T) {
 	// Empty mapping - should not log warnings
 	var buf bytes.Buffer
 	log.SetOutput(&buf)
-	defer log.SetOutput(nil)
+	defer log.SetOutput(os.Stderr)
 
 	notifications := resolveNotificationTargets([]*ClassifiedMR{cmr}, []UserMappingEntry{})
 
