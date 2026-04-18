@@ -390,3 +390,48 @@ func TestExecuteSmartNotification_NoStatePath(t *testing.T) {
 func timePtr(t time.Time) *time.Time {
 	return &t
 }
+
+func TestShouldRunOneShot(t *testing.T) {
+	tests := []struct {
+		name   string
+		config *Config
+		want   bool
+	}{
+		{
+			name:   "no schedules configured → one-shot",
+			config: &Config{},
+			want:   true,
+		},
+		{
+			name:   "summary nil → one-shot when cron empty",
+			config: &Config{CronSchedule: "", Summary: nil},
+			want:   true,
+		},
+		{
+			name:   "cron schedule set → scheduler mode",
+			config: &Config{CronSchedule: "0 9 * * *"},
+			want:   false,
+		},
+		{
+			name:   "summary schedule set → scheduler mode",
+			config: &Config{Summary: &SummaryConfig{Schedule: "0 10 * * 1-5"}},
+			want:   false,
+		},
+		{
+			name:   "both schedules set → scheduler mode",
+			config: &Config{CronSchedule: "*/5 * * * *", Summary: &SummaryConfig{Schedule: "0 9 * * *"}},
+			want:   false,
+		},
+		{
+			name:   "summary present but schedule empty → one-shot when cron empty",
+			config: &Config{Summary: &SummaryConfig{Schedule: ""}},
+			want:   true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, shouldRunOneShot(tc.config))
+		})
+	}
+}

@@ -91,6 +91,38 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, "/data/state.json", config.State.Path)
 	})
 
+	// Test summary-related environment variables
+	t.Run("summary env variables", func(t *testing.T) {
+		env := &MockEnv{values: map[string]string{
+			"GITLAB_TOKEN":        "token",
+			"SLACK_WEBHOOK_URL":   "webhook",
+			"CONFIG_PATH":         "NONEXISTING.yaml",
+			"PROJECTS":            "1",
+			"SUMMARY_SCHEDULE":    "0 9 * * 1-5",
+			"SUMMARY_WEBHOOK_URL": "https://hooks.slack.com/summary",
+			"SUMMARY_STALE_DAYS":  "14",
+		}}
+		config, err := loadConfig(env)
+		assert.NoError(t, err)
+		require.NotNil(t, config.Summary)
+		assert.Equal(t, "0 9 * * 1-5", config.Summary.Schedule)
+		assert.Equal(t, "https://hooks.slack.com/summary", config.Summary.WebhookURL)
+		assert.Equal(t, 14, config.Summary.StaleDays)
+	})
+
+	t.Run("SUMMARY_STALE_DAYS parsing error", func(t *testing.T) {
+		env := &MockEnv{values: map[string]string{
+			"GITLAB_TOKEN":       "token",
+			"SLACK_WEBHOOK_URL":  "webhook",
+			"CONFIG_PATH":        "NONEXISTING.yaml",
+			"PROJECTS":           "1",
+			"SUMMARY_STALE_DAYS": "abc",
+		}}
+		_, err := loadConfig(env)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "SUMMARY_STALE_DAYS")
+	})
+
 	// Test loading config from file
 	t.Run("loading from config file", func(t *testing.T) {
 		env := &MockEnv{values: map[string]string{

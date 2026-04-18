@@ -33,3 +33,9 @@ user_mapping:
 # Notification state file for deduplication (optional)
 state:
   path: "/data/notification_state.json"
+
+# Scheduled summary (optional — enable periodic full MR status report)
+summary:
+  schedule: "0 9 * * 1-5"          # Weekdays 9 AM
+  # webhook_url: "..."             # Optional: separate channel (falls back to notification.webhook.url)
+  # stale_days: 7                  # Optional: default 7

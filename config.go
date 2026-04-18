@@ -24,6 +24,7 @@ type Config struct {
 	Notification *NotificationConfig `yaml:"notification"`
 	UserMapping  []UserMappingEntry  `yaml:"user_mapping"`
 	State        *StateConfig        `yaml:"state"`
+	Summary      *SummaryConfig      `yaml:"summary"`
 }
 
 type ConfigGroup struct {
@@ -60,6 +61,12 @@ type UserMappingEntry struct {
 
 type StateConfig struct {
 	Path string `yaml:"path"`
+}
+
+type SummaryConfig struct {
+	Schedule   string `yaml:"schedule"`
+	WebhookURL string `yaml:"webhook_url"`
+	StaleDays  int    `yaml:"stale_days"`
 }
 
 type Env interface {
@@ -165,6 +172,31 @@ func loadConfig(env Env) (*Config, error) {
 			config.State = &StateConfig{}
 		}
 		config.State.Path = statePath
+	}
+
+	if sumSchedule := env.Getenv("SUMMARY_SCHEDULE"); sumSchedule != "" {
+		if config.Summary == nil {
+			config.Summary = &SummaryConfig{}
+		}
+		config.Summary.Schedule = sumSchedule
+	}
+
+	if sumWebhookURL := env.Getenv("SUMMARY_WEBHOOK_URL"); sumWebhookURL != "" {
+		if config.Summary == nil {
+			config.Summary = &SummaryConfig{}
+		}
+		config.Summary.WebhookURL = sumWebhookURL
+	}
+
+	if sumStale := env.Getenv("SUMMARY_STALE_DAYS"); sumStale != "" {
+		days, err := strconv.Atoi(sumStale)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing SUMMARY_STALE_DAYS: %v", err)
+		}
+		if config.Summary == nil {
+			config.Summary = &SummaryConfig{}
+		}
+		config.Summary.StaleDays = days
 	}
 
 	cronSchedule := env.Getenv("CRON_SCHEDULE")

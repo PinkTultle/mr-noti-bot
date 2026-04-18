@@ -29,7 +29,7 @@ func mainStandalone() {
 		log.Fatalf("Error loading configuration: %v", err)
 	}
 
-	if config.CronSchedule == "" {
+	if shouldRunOneShot(config) {
 		log.Printf("Running in one-shot mode")
 		if err := execute(config); err != nil {
 			log.Fatalf("Error executing: %v", err)
@@ -40,39 +40,75 @@ func mainStandalone() {
 	runScheduler(config)
 }
 
+// shouldRunOneShot reports whether the process should execute once and exit.
+// One-shot mode is chosen only when neither schedule (smart notification nor summary) is configured.
+func shouldRunOneShot(config *Config) bool {
+	if config.CronSchedule != "" {
+		return false
+	}
+	if config.Summary != nil && config.Summary.Schedule != "" {
+		return false
+	}
+	return true
+}
+
 // Entry point for AWS Lambda execution.
 func mainLambda() {
 	lambda.Start(HandleRequest)
 }
 
 func runScheduler(config *Config) {
-	log.Printf("Running in cron mode with schedule: %s", config.CronSchedule)
-
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	sched := quartz.NewStdScheduler()
 	sched.Start(ctx)
 
-	cronTrigger, err := quartz.NewCronTrigger(config.CronSchedule)
-	if err != nil {
-		log.Fatalf("Error creating cron trigger: %v", err)
+	if config.CronSchedule != "" {
+		if err := registerExecuteJob(sched, config); err != nil {
+			log.Fatalf("Error scheduling execute job: %v", err)
+		}
+		log.Printf("Execute job scheduled: %s", config.CronSchedule)
 	}
 
-	executeJob := job.NewFunctionJob(func(_ context.Context) (int, error) {
-		if err := execute(config); err != nil {
-			log.Printf("Error during scheduled execution: %v", err)
-			return 1, err // Indicate failure
+	if config.Summary != nil && config.Summary.Schedule != "" {
+		if err := registerSummaryJob(sched, config); err != nil {
+			log.Fatalf("Error scheduling summary job: %v", err)
 		}
-		return 0, nil // Indicate success
-	})
-
-	err = sched.ScheduleJob(quartz.NewJobDetail(executeJob, quartz.NewJobKey("executeJob")), cronTrigger)
-	if err != nil {
-		log.Fatalf("Error scheduling job: %v", err)
+		log.Printf("Summary job scheduled: %s", config.Summary.Schedule)
 	}
 
 	<-ctx.Done()
+}
+
+func registerExecuteJob(sched quartz.Scheduler, config *Config) error {
+	trigger, err := quartz.NewCronTrigger(config.CronSchedule)
+	if err != nil {
+		return err
+	}
+	j := job.NewFunctionJob(func(_ context.Context) (int, error) {
+		if err := execute(config); err != nil {
+			log.Printf("Error during scheduled execution: %v", err)
+			return 1, err
+		}
+		return 0, nil
+	})
+	return sched.ScheduleJob(quartz.NewJobDetail(j, quartz.NewJobKey("executeJob")), trigger)
+}
+
+func registerSummaryJob(sched quartz.Scheduler, config *Config) error {
+	trigger, err := quartz.NewCronTrigger(config.Summary.Schedule)
+	if err != nil {
+		return err
+	}
+	j := job.NewFunctionJob(func(_ context.Context) (int, error) {
+		if err := executeSummary(config); err != nil {
+			log.Printf("Error during summary execution: %v", err)
+			return 1, err
+		}
+		return 0, nil
+	})
+	return sched.ScheduleJob(quartz.NewJobDetail(j, quartz.NewJobKey("summaryJob")), trigger)
 }
 
 // LambdaInput represents the input event for the Lambda function.
