@@ -1,10 +1,10 @@
 # mr-noti-bot — Claude Code 프로젝트 규칙
-> 기반: ai-dev-toolkit v0.3.0.0
+> 기반: ai-dev-toolkit v0.5.0
 >
 > 위치: `<프로젝트 루트>/CLAUDE.md`
 > 글로벌 규칙(`~/.claude/CLAUDE.md`)을 상속하며, 이 파일에서 오버라이드/추가합니다.
 >
-> placeholder는 `/project-configure`로 구체화하세요.
+> placeholder는 `/adt:project-configure`로 구체화하세요.
 
 ---
 

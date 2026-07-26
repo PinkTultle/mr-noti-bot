@@ -6,7 +6,7 @@ description: "Git 워크플로우 — 브랜치 전략, Conventional Commits, Wo
 # Git 워크플로우
 
 > 원본: `blueprints/git-workflow.md`
-> 프로젝트 rules 템플릿 — `/project-configure`가 프로젝트에 맞게 커스터마이즈하여 복제
+> 프로젝트 rules 템플릿 — `/adt:project-configure`가 프로젝트에 맞게 커스터마이즈하여 복제
 
 ## 1. 브랜치 전략
 
