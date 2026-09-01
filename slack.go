@@ -52,25 +52,59 @@ func (w *WebhookNotifier) Send(notifications []*Notification) error {
 		w.client = &slackClient{webhookURL: w.webhookURL}
 	}
 
+	messages := buildWebhookMessages(notifications)
+	for i, msg := range messages {
+		if err := w.client.PostWebhook(&slack.WebhookMessage{Text: msg}); err != nil {
+			return fmt.Errorf("error sending notification message %d/%d: %w", i+1, len(messages), err)
+		}
+	}
+	return nil
+}
+
+// buildWebhookMessages groups notifications by status and splits them into
+// chunks of at most maxMRsPerMessage MRs, mirroring the summary path.
+// Slack rejects webhook payloads beyond roughly 40,000 characters; on the
+// first run every open MR counts as changed, so a single message overflows.
+func buildWebhookMessages(notifications []*Notification) []string {
 	grouped := groupNotificationsByStatus(notifications)
-	var text string
+
+	var messages []string
+	var current string
+	var count int
+
+	flush := func() {
+		if current != "" {
+			messages = append(messages, current)
+			current = ""
+			count = 0
+		}
+	}
 
 	for _, status := range summaryStatusOrder {
 		notifs, ok := grouped[status]
 		if !ok {
 			continue
 		}
-		text += statusMessages[status] + "\n"
+
+		header := statusMessages[status] + "\n"
+		current += header
+
 		for _, n := range notifs {
-			text += formatNotificationLine(n) + "\n"
-			if len(n.Targets) > 0 {
-				text += "\u2192 " + formatMentions(n.Targets) + "\n"
+			if count >= maxMRsPerMessage {
+				flush()
+				current += header // \uc774\uc5b4\uc9c0\ub294 \uba54\uc2dc\uc9c0\uc5d0\ub3c4 \uc0c1\ud0dc \ud5e4\ub354\ub97c \ub2e4\uc2dc \ub123\ub294\ub2e4
 			}
+			current += formatNotificationLine(n) + "\n"
+			if len(n.Targets) > 0 {
+				current += "\u2192 " + formatMentions(n.Targets) + "\n"
+			}
+			count++
 		}
-		text += "\n"
+		current += "\n"
 	}
 
-	return w.client.PostWebhook(&slack.WebhookMessage{Text: text})
+	flush()
+	return messages
 }
 
 // formatNotificationLine renders one MR line for webhook messages.

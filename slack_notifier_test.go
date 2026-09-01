@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/flexoid/mergentle-reminder/mocks"
@@ -118,6 +119,51 @@ func TestWebhookNotifier_Send_ActuallyPosts(t *testing.T) {
 	assert.Contains(t, captured[0], "MR A")
 	assert.Contains(t, captured[0], "<@U1>")
 	mockClient.AssertExpectations(t)
+}
+
+func TestWebhookNotifier_Send_ChunksLargePayload(t *testing.T) {
+	var notifications []*Notification
+	for i := 0; i < 95; i++ { // 40 * 2 + 15 → 3개 메시지
+		notifications = append(notifications, newSingleTargetNotification(
+			StatusNeedsReview,
+			fmt.Sprintf("MR %d", i),
+			fmt.Sprintf("https://gl/%d", i),
+			"alice", "U1"))
+	}
+
+	mockClient := mocks.NewSlackClient(t)
+	var sent []string
+	mockClient.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		sent = append(sent, args.Get(0).(*slack.WebhookMessage).Text)
+	}).Return(nil)
+
+	n := &WebhookNotifier{webhookURL: "https://example.invalid", client: mockClient}
+	require.NoError(t, n.Send(notifications))
+
+	assert.Len(t, sent, 3, "MR 95개는 40개 단위로 3개 메시지로 나뉘어야 한다")
+	for i, msg := range sent {
+		assert.Less(t, len(msg), 40000, "메시지 %d가 Slack 한도를 넘었다", i)
+	}
+	// 첫 MR과 마지막 MR이 모두 전송되어야 한다 (유실 없음)
+	all := strings.Join(sent, "")
+	assert.Contains(t, all, "MR 0")
+	assert.Contains(t, all, "MR 94")
+}
+
+func TestWebhookNotifier_Send_StopsOnFirstError(t *testing.T) {
+	var notifications []*Notification
+	for i := 0; i < 50; i++ {
+		notifications = append(notifications, newSingleTargetNotification(
+			StatusNeedsReview, fmt.Sprintf("MR %d", i), "https://gl/x", "alice", "U1"))
+	}
+
+	mockClient := mocks.NewSlackClient(t)
+	mockClient.On("PostWebhook", mock.Anything).Return(errors.New("slack down")).Once()
+
+	n := &WebhookNotifier{webhookURL: "https://example.invalid", client: mockClient}
+	err := n.Send(notifications)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "slack down")
 }
 
 // newSingleTargetNotification은 단일 대상 알림을 조립하는 헬퍼다.
