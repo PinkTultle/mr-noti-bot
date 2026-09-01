@@ -71,7 +71,6 @@ func TestLoadConfig(t *testing.T) {
 	t.Run("notification env variables", func(t *testing.T) {
 		env := &MockEnv{values: map[string]string{
 			"GITLAB_TOKEN":             "token",
-			"SLACK_WEBHOOK_URL":        "webhook",
 			"CONFIG_PATH":              "NONEXISTING.yaml",
 			"PROJECTS":                 "1",
 			"NOTIFICATION_MODE":        "dm",
@@ -95,7 +94,6 @@ func TestLoadConfig(t *testing.T) {
 	t.Run("summary env variables", func(t *testing.T) {
 		env := &MockEnv{values: map[string]string{
 			"GITLAB_TOKEN":        "token",
-			"SLACK_WEBHOOK_URL":   "webhook",
 			"CONFIG_PATH":         "NONEXISTING.yaml",
 			"PROJECTS":            "1",
 			"SUMMARY_SCHEDULE":    "0 9 * * 1-5",
@@ -185,6 +183,53 @@ func TestLoadConfig_WebhookURLStillRequiredInLegacyMode(t *testing.T) {
 		"GITLAB_TOKEN": "tok",
 		"PROJECTS":     "1",
 		// notification 블록 없음 → legacy 경로
+	}}
+
+	_, err := loadConfig(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SLACK_WEBHOOK_URL")
+}
+
+// summary.schedule만 설정되고 cron_schedule이 없으면 execute()(legacy/smart 알림 경로)가
+// 아예 호출되지 않으므로 slack.webhook_url을 요구하지 않아야 한다.
+func TestLoadConfig_WebhookURLNotRequiredInSummaryOnlyMode(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":      "NONEXISTING.yaml",
+		"GITLAB_TOKEN":     "tok",
+		"PROJECTS":         "1",
+		"SUMMARY_SCHEDULE": "0 9 * * 1-5",
+		// CRON_SCHEDULE, NOTIFICATION_MODE, SLACK_WEBHOOK_URL 모두 없음
+	}}
+
+	config, err := loadConfig(env)
+	require.NoError(t, err, "summary 전용 구성에서는 legacy webhook URL이 필요 없다")
+	assert.Equal(t, "0 9 * * 1-5", config.Summary.Schedule)
+}
+
+// cron_schedule이 설정된 legacy 구성(notification 블록 없음)은 execute()가
+// 스케줄러로 반드시 호출되므로 여전히 slack.webhook_url을 요구해야 한다.
+func TestLoadConfig_WebhookURLStillRequiredInLegacyModeWithCron(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":   "NONEXISTING.yaml",
+		"GITLAB_TOKEN":  "tok",
+		"PROJECTS":      "1",
+		"CRON_SCHEDULE": "0 * * * *",
+		// notification 블록 없음, SLACK_WEBHOOK_URL 없음
+	}}
+
+	_, err := loadConfig(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SLACK_WEBHOOK_URL")
+}
+
+// 스케줄이 전혀 없는 legacy 구성은 one-shot으로 execute()가 즉시 한 번 실행되므로
+// 여전히 slack.webhook_url을 요구해야 한다.
+func TestLoadConfig_WebhookURLStillRequiredInLegacyOneShotMode(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":  "NONEXISTING.yaml",
+		"GITLAB_TOKEN": "tok",
+		"PROJECTS":     "1",
+		// CRON_SCHEDULE, SUMMARY_SCHEDULE, notification 블록 모두 없음 → one-shot
 	}}
 
 	_, err := loadConfig(env)

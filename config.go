@@ -205,9 +205,12 @@ func loadConfig(env Env) (*Config, error) {
 		return nil, fmt.Errorf("neither groups nor projects were provided")
 	}
 
-	// legacy 경로(notification 블록 없음)에서만 slack.webhook_url을 읽는다.
-	// smart/summary 모드에서는 사용되지 않으므로 요구하지 않는다.
-	if config.Notification == nil && config.Slack.WebhookURL == "" {
+	// legacy 경로(notification 블록 없음)에서 execute()가 실제로 실행될 때만
+	// slack.webhook_url을 요구한다. summary.schedule만 설정된 구성에서는
+	// execute()가 아예 호출되지 않으므로 이 값이 소비되지 않는다.
+	if config.Notification == nil &&
+		(config.CronSchedule != "" || shouldRunOneShot(config)) &&
+		config.Slack.WebhookURL == "" {
 		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
 	}
 
