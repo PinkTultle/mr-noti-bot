@@ -25,19 +25,49 @@ export class CdkStack extends cdk.Stack {
           PROJECTS: process.env.PROJECTS || "",
           GROUPS: process.env.GROUPS || "",
           AUTHORS: process.env.AUTHORS || "",
+          NOTIFICATION_MODE: process.env.NOTIFICATION_MODE || "",
+          NOTIFICATION_WEBHOOK_URL: process.env.NOTIFICATION_WEBHOOK_URL || "",
+          NOTIFICATION_BOT_TOKEN: process.env.NOTIFICATION_BOT_TOKEN || "",
+          STATE_PATH: process.env.STATE_PATH || "",
+          SUMMARY_SCHEDULE: process.env.SUMMARY_SCHEDULE || "",
+          SUMMARY_WEBHOOK_URL: process.env.SUMMARY_WEBHOOK_URL || "",
+          SUMMARY_STALE_DAYS: process.env.SUMMARY_STALE_DAYS || "",
         },
       }
     );
 
     // An EventBridge rule to run the Lambda function on a schedule.
     // Runs every weekday at 9am UTC. You can modify the schedule here.
+    // The job payload is explicit: LambdaInput.Job defaults to "notify" for
+    // an empty event too, but spelling it out here makes the intent visible
+    // instead of relying on that default.
     new events.Rule(this, "ScheduledRunRule", {
       schedule: events.Schedule.cron({
         minute: "0",
         hour: "7,13",
         weekDay: "MON-FRI",
       }),
-      targets: [new targets.LambdaFunction(mergentleReminderLambda)],
+      targets: [
+        new targets.LambdaFunction(mergentleReminderLambda, {
+          event: events.RuleTargetInput.fromObject({ job: "notify" }),
+        }),
+      ],
+    });
+
+    // A second EventBridge rule for the periodic MR status summary. Without
+    // this rule, SUMMARY_SCHEDULE has no way to actually fire in the Lambda
+    // deployment: the summary job only runs when it receives {"job":"summary"}.
+    new events.Rule(this, "ScheduledSummaryRule", {
+      schedule: events.Schedule.cron({
+        minute: "0",
+        hour: "9",
+        weekDay: "MON-FRI",
+      }),
+      targets: [
+        new targets.LambdaFunction(mergentleReminderLambda, {
+          event: events.RuleTargetInput.fromObject({ job: "summary" }),
+        }),
+      ],
     });
   }
 }
