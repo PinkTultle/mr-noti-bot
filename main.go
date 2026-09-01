@@ -110,6 +110,12 @@ func registerSummaryJob(sched quartz.Scheduler, config *Config) error {
 	return sched.ScheduleJob(quartz.NewJobDetail(j, quartz.NewJobKey("summaryJob")), trigger)
 }
 
+// Lambda job names, shared by normalizedJob and runLambdaJob's dispatch.
+const (
+	jobNotify  = "notify"
+	jobSummary = "summary"
+)
+
 // LambdaInput represents the input event for the Lambda function.
 // EventBridge rules select which job to run: {"job":"summary"} for the
 // periodic report, anything else (or an empty event) for notifications.
@@ -121,7 +127,7 @@ type LambdaInput struct {
 // EventBridge rules that send an empty event keep triggering notifications.
 func (i LambdaInput) normalizedJob() string {
 	if i.Job == "" {
-		return "notify"
+		return jobNotify
 	}
 	return i.Job
 }
@@ -142,18 +148,18 @@ func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
 // reads real environment variables.
 func runLambdaJob(config *Config, input LambdaInput) (string, error) {
 	switch input.normalizedJob() {
-	case "notify":
+	case jobNotify:
 		if err := execute(config); err != nil {
 			return "", err
 		}
 		return "Success", nil
-	case "summary":
+	case jobSummary:
 		if err := executeSummary(config); err != nil {
 			return "", err
 		}
 		return "Success", nil
 	default:
-		return "", fmt.Errorf("unknown lambda job %q (expected \"notify\" or \"summary\")", input.Job)
+		return "", fmt.Errorf("unknown lambda job %q (expected %q or %q)", input.Job, jobNotify, jobSummary)
 	}
 }
 

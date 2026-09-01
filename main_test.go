@@ -708,3 +708,20 @@ func TestLambdaInput_UnknownJobIsRejected(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bogus")
 }
+
+func TestRunLambdaJob_NotifySucceedsWithoutNetwork(t *testing.T) {
+	// 빈 Config는 groups/projects가 없어 execute()가 GitLab API를 전혀 호출하지 않고
+	// "MR 없음" 분기로 바로 성공한다 — notify가 실제로 execute()에 도달했음을 증명한다.
+	res, err := runLambdaJob(&Config{}, LambdaInput{Job: "notify"})
+	require.NoError(t, err)
+	assert.Equal(t, "Success", res)
+}
+
+func TestRunLambdaJob_SummaryReachesSummaryValidation(t *testing.T) {
+	// 빈 Config는 webhook 설정이 없어 executeSummary()가 네트워크보다 먼저
+	// 이 에러로 실패한다 — summary가 execute()가 아니라 executeSummary()에
+	// 도달했음을, notify와는 다른 에러로 구분해 증명한다.
+	_, err := runLambdaJob(&Config{}, LambdaInput{Job: "summary"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no webhook URL configured for summary")
+}
