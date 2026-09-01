@@ -187,10 +187,10 @@ func TestExecuteLegacy(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
 			MergeRequest: &gitlab.MergeRequest{
-				Title:                      "Fix login bug",
-				WebURL:                     "https://gitlab.com/test/project/-/merge_requests/42",
-				Author:                     &gitlab.BasicUser{ID: 10, Name: "Alice", Username: "alice"},
-				CreatedAt:                  timePtr(time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)),
+				Title:                       "Fix login bug",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/42",
+				Author:                      &gitlab.BasicUser{ID: 10, Name: "Alice", Username: "alice"},
+				CreatedAt:                   timePtr(time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)),
 				BlockingDiscussionsResolved: true,
 			},
 			ApprovedBy: []string{},
@@ -232,13 +232,13 @@ func TestExecuteSmartNotification_WebhookMode(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
 			MergeRequest: &gitlab.MergeRequest{
-				IID:                        101,
-				Title:                      "Add dark mode",
-				WebURL:                     "https://gitlab.com/test/project/-/merge_requests/101",
-				Author:                     &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
-				HasConflicts:               false,
+				IID:                         101,
+				Title:                       "Add dark mode",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
+				Author:                      &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
+				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,
-				Reviewers:                  []*gitlab.BasicUser{{Username: "carol", Name: "Carol"}},
+				Reviewers:                   []*gitlab.BasicUser{{Username: "carol", Name: "Carol"}},
 			},
 			ApprovedBy: []string{},
 			ProjectID:  5,
@@ -303,11 +303,11 @@ func TestExecuteSmartNotification_NoChanges(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
 			MergeRequest: &gitlab.MergeRequest{
-				IID:                        101,
-				Title:                      "Add dark mode",
-				WebURL:                     "https://gitlab.com/test/project/-/merge_requests/101",
-				Author:                     &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
-				HasConflicts:               false,
+				IID:                         101,
+				Title:                       "Add dark mode",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
+				Author:                      &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
+				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,
 			},
 			ApprovedBy: []string{},
@@ -362,11 +362,11 @@ func TestExecuteSmartNotification_StateFileCreated(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
 			MergeRequest: &gitlab.MergeRequest{
-				IID:                        55,
-				Title:                      "Refactor auth module",
-				WebURL:                     "https://gitlab.com/test/project/-/merge_requests/55",
-				Author:                     &gitlab.BasicUser{ID: 5, Name: "Eve", Username: "eve"},
-				HasConflicts:               false,
+				IID:                         55,
+				Title:                       "Refactor auth module",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/55",
+				Author:                      &gitlab.BasicUser{ID: 5, Name: "Eve", Username: "eve"},
+				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,
 			},
 			ApprovedBy: []string{},
@@ -415,11 +415,11 @@ func TestExecuteSmartNotification_NoStatePath(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
 			MergeRequest: &gitlab.MergeRequest{
-				IID:                        77,
-				Title:                      "Update CI pipeline",
-				WebURL:                     "https://gitlab.com/test/project/-/merge_requests/77",
-				Author:                     &gitlab.BasicUser{ID: 8, Name: "Frank", Username: "frank"},
-				HasConflicts:               false,
+				IID:                         77,
+				Title:                       "Update CI pipeline",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/77",
+				Author:                      &gitlab.BasicUser{ID: 8, Name: "Frank", Username: "frank"},
+				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,
 			},
 			ApprovedBy: []string{},

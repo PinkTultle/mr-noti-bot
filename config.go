@@ -56,7 +56,7 @@ type BotConfig struct {
 
 type UserMappingEntry struct {
 	GitLabUsername string `yaml:"gitlab_username"`
-	SlackID       string `yaml:"slack_id"`
+	SlackID        string `yaml:"slack_id"`
 }
 
 type StateConfig struct {
