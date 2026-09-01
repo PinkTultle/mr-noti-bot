@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // --- helpers ---
@@ -25,7 +25,7 @@ func newTestNotification(
 ) *Notification {
 	cmr := &ClassifiedMR{
 		MR: &MergeRequestWithApprovals{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Title:  title,
 				WebURL: url,
 				Author: &gitlab.BasicUser{Name: authorName},
@@ -217,7 +217,7 @@ func newSingleTargetNotification(status MRStatus, title, url, author, slackID st
 			Status: status,
 			MR: &MergeRequestWithApprovals{
 				ProjectID: 1,
-				MergeRequest: &gitlab.MergeRequest{
+				MergeRequest: &gitlab.BasicMergeRequest{
 					IID: 1, Title: title, WebURL: url,
 					Author: &gitlab.BasicUser{Username: author, Name: author},
 				},

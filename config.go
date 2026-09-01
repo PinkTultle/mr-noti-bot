@@ -28,15 +28,15 @@ type Config struct {
 }
 
 type ConfigGroup struct {
-	ID int `yaml:"id"`
+	ID int64 `yaml:"id"`
 }
 
 type ConfigProject struct {
-	ID int `yaml:"id"`
+	ID int64 `yaml:"id"`
 }
 
 type ConfigAuthor struct {
-	ID       int    `yaml:"id"`
+	ID       int64  `yaml:"id"`
 	Username string `yaml:"username"`
 }
 
@@ -279,10 +279,10 @@ func parseIDsAsConfigGroups(env string) ([]ConfigGroup, error) {
 	return groups, nil
 }
 
-func parseIDs(env string) ([]int, error) {
-	var ids []int
+func parseIDs(env string) ([]int64, error) {
+	var ids []int64
 	for _, idStr := range strings.Split(env, ",") {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -295,7 +295,7 @@ func parseAuthors(env string) ([]ConfigAuthor, error) {
 	var authors []ConfigAuthor
 	for _, authorStr := range strings.Split(env, ",") {
 		author := ConfigAuthor{}
-		if id, err := strconv.Atoi(authorStr); err == nil {
+		if id, err := strconv.ParseInt(authorStr, 10, 64); err == nil {
 			author.ID = id
 		} else {
 			author.Username = authorStr

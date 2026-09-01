@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // newSummaryClassifiedMR is a test helper that builds a ClassifiedMR with a
@@ -19,7 +19,7 @@ import (
 func newSummaryClassifiedMR(title, authorName, url string, createdAt time.Time, status MRStatus) *ClassifiedMR {
 	return &ClassifiedMR{
 		MR: &MergeRequestWithApprovals{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Title:     title,
 				WebURL:    url,
 				Author:    &gitlab.BasicUser{Name: authorName, Username: strings.ToLower(authorName)},
@@ -267,10 +267,10 @@ func TestResolveStaleDays_Default(t *testing.T) {
 // fetchOpenedMergeRequests always sends for a project's opened MRs.
 func newFetchMergeRequestsOptions() *gitlab.ListProjectMergeRequestsOptions {
 	return &gitlab.ListProjectMergeRequestsOptions{
-		State:   gitlab.String("opened"),
-		OrderBy: gitlab.String("updated_at"),
-		Sort:    gitlab.String("desc"),
-		WIP:     gitlab.String("no"),
+		State:   gitlab.Ptr("opened"),
+		OrderBy: gitlab.Ptr("updated_at"),
+		Sort:    gitlab.Ptr("desc"),
+		WIP:     gitlab.Ptr("no"),
 		ListOptions: gitlab.ListOptions{
 			Page:    1,
 			PerPage: 50,
@@ -283,8 +283,8 @@ func TestExecuteSummaryWithClient_PostsMessage(t *testing.T) {
 	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
 
 	mockGL := mocks.NewGitLabClient(t)
-	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
-		[]*gitlab.MergeRequest{
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
 			{
 				IID:       1,
 				Title:     "Fix login bug",
@@ -296,7 +296,7 @@ func TestExecuteSummaryWithClient_PostsMessage(t *testing.T) {
 		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
 		nil,
 	).Once()
-	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
 		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
 		&gitlab.Response{},
 		nil,
@@ -329,8 +329,8 @@ func TestExecuteSummaryWithClient_AppliesAuthorFilter(t *testing.T) {
 	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
 
 	mockGL := mocks.NewGitLabClient(t)
-	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
-		[]*gitlab.MergeRequest{
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
 			{
 				IID:       1,
 				Title:     "alice의 MR",
@@ -349,12 +349,12 @@ func TestExecuteSummaryWithClient_AppliesAuthorFilter(t *testing.T) {
 		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
 		nil,
 	).Once()
-	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
 		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
 		&gitlab.Response{},
 		nil,
 	).Once()
-	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 2).Return(
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(2)).Return(
 		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
 		&gitlab.Response{},
 		nil,
@@ -381,8 +381,8 @@ func TestExecuteSummaryWithClient_PostWebhookError(t *testing.T) {
 	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
 
 	mockGL := mocks.NewGitLabClient(t)
-	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
-		[]*gitlab.MergeRequest{
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
 			{
 				IID:       1,
 				Title:     "Fix login bug",
@@ -394,7 +394,7 @@ func TestExecuteSummaryWithClient_PostWebhookError(t *testing.T) {
 		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
 		nil,
 	).Once()
-	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
 		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
 		&gitlab.Response{},
 		nil,

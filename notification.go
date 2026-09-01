@@ -5,12 +5,12 @@ import (
 	"log"
 	"strings"
 
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // authorName returns the MR author display name, or "unknown" when the
 // author is absent (deleted user, or a service account the token cannot resolve).
-func authorName(mr *gitlab.MergeRequest) string {
+func authorName(mr *gitlab.BasicMergeRequest) string {
 	if mr == nil || mr.Author == nil {
 		return "unknown"
 	}
@@ -18,7 +18,7 @@ func authorName(mr *gitlab.MergeRequest) string {
 }
 
 // authorUsername returns the MR author username, or "" when absent.
-func authorUsername(mr *gitlab.MergeRequest) string {
+func authorUsername(mr *gitlab.BasicMergeRequest) string {
 	if mr == nil || mr.Author == nil {
 		return ""
 	}

@@ -34,7 +34,7 @@ type MRNotificationRecord struct {
 }
 
 // stateKey generates a unique key for a MR: "ProjectID:MR_IID"
-func stateKey(projectID, mrIID int) string {
+func stateKey(projectID, mrIID int64) string {
 	return fmt.Sprintf("%d:%d", projectID, mrIID)
 }
 

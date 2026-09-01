@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // helper to create a ClassifiedMR for testing.
@@ -19,7 +19,7 @@ func newTestClassifiedMR(
 	status MRStatus,
 	roles []TargetRole,
 ) *ClassifiedMR {
-	mr := &gitlab.MergeRequest{
+	mr := &gitlab.BasicMergeRequest{
 		Title:  "Test MR",
 		WebURL: "https://gitlab.com/test/project/-/merge_requests/1",
 		Author: author,
@@ -160,7 +160,7 @@ func TestResolveNotificationTargets_NilAuthorDoesNotPanic(t *testing.T) {
 		TargetRoles: []TargetRole{RoleAuthor, RoleReviewer},
 		MR: &MergeRequestWithApprovals{
 			ProjectID: 1,
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID: 7, Title: "ghost MR", WebURL: "https://gl/7",
 				Author:    nil, // 삭제된 사용자
 				Reviewers: []*gitlab.BasicUser{{Username: "carol"}},
@@ -187,7 +187,7 @@ func TestResolveNotificationTargets_DedupesAuthorWhoIsAlsoReviewer(t *testing.T)
 		TargetRoles: []TargetRole{RoleAuthor, RoleReviewer},
 		MR: &MergeRequestWithApprovals{
 			ProjectID: 1,
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID: 1, Title: "t", WebURL: "https://gl/1",
 				Author:    &gitlab.BasicUser{Username: "alice", Name: "Alice"},
 				Reviewers: []*gitlab.BasicUser{{Username: "alice"}, {Username: "bob"}},
@@ -216,7 +216,7 @@ func TestResolveNotificationTargets_DedupesReviewersSharingSlackID(t *testing.T)
 		TargetRoles: []TargetRole{RoleReviewer},
 		MR: &MergeRequestWithApprovals{
 			ProjectID: 1,
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID: 2, Title: "t2", WebURL: "https://gl/2",
 				Author:    &gitlab.BasicUser{Username: "alice", Name: "Alice"},
 				Reviewers: []*gitlab.BasicUser{{Username: "dave"}, {Username: "dave2"}},
@@ -239,13 +239,13 @@ func TestResolveNotificationTargets_DedupesReviewersSharingSlackID(t *testing.T)
 func TestResolveNotificationTargets_DedupeIsPerMR(t *testing.T) {
 	// seen 맵은 MR마다 새로 만들어져야 한다 — 공유되면 두 번째 MR부터
 	// 동일 인물이 잘못 걸러진다.
-	makeMR := func(iid int) *ClassifiedMR {
+	makeMR := func(iid int64) *ClassifiedMR {
 		return &ClassifiedMR{
 			Status:      StatusNeedsReview,
 			TargetRoles: []TargetRole{RoleReviewer},
 			MR: &MergeRequestWithApprovals{
 				ProjectID: 1,
-				MergeRequest: &gitlab.MergeRequest{
+				MergeRequest: &gitlab.BasicMergeRequest{
 					IID: iid, Title: "t", WebURL: "https://gl/mr",
 					Author:    &gitlab.BasicUser{Username: "alice", Name: "Alice"},
 					Reviewers: []*gitlab.BasicUser{{Username: "bob"}},
@@ -268,7 +268,7 @@ func TestResolveNotificationTargets_DedupeIsPerMR(t *testing.T) {
 
 func TestFormatNotificationLine_NilAuthor(t *testing.T) {
 	n := &Notification{MR: &ClassifiedMR{MR: &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{Title: "t", WebURL: "u", Author: nil},
+		MergeRequest: &gitlab.BasicMergeRequest{Title: "t", WebURL: "u", Author: nil},
 	}}}
 	require.NotPanics(t, func() { _ = formatNotificationLine(n) })
 	assert.Contains(t, formatNotificationLine(n), "unknown")

@@ -16,23 +16,23 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 func TestFilterMergeRequestsByAuthor(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
 			},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 2, Name: "James Doe", Username: "jamesdoe"},
 			},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 2, Name: "Jane Doe", Username: "janedoe"},
 			},
 		},
@@ -46,14 +46,14 @@ func TestFilterMergeRequestsByAuthor(t *testing.T) {
 	filteredMRs := filterMergeRequestsByAuthor(mrs, authors)
 
 	require.Equal(t, 2, len(filteredMRs))
-	assert.Equal(t, 1, filteredMRs[0].MergeRequest.Author.ID)
-	assert.Equal(t, 2, filteredMRs[1].MergeRequest.Author.ID)
+	assert.Equal(t, int64(1), filteredMRs[0].MergeRequest.Author.ID)
+	assert.Equal(t, int64(2), filteredMRs[1].MergeRequest.Author.ID)
 }
 
 func TestFilterMergeRequestsByAuthor_NoMatchingAuthors(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 3, Name: "Alice", Username: "alice"},
 			},
 		},
@@ -69,12 +69,12 @@ func TestFilterMergeRequestsByAuthor_NoMatchingAuthors(t *testing.T) {
 func TestFilterMergeRequestsByAuthor_MultipleMergeRequestsSameAuthor(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
 			},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
 			},
 		},
@@ -84,8 +84,8 @@ func TestFilterMergeRequestsByAuthor_MultipleMergeRequestsSameAuthor(t *testing.
 	}
 	filteredMRs := filterMergeRequestsByAuthor(mrs, authors)
 	require.Equal(t, 2, len(filteredMRs))
-	assert.Equal(t, 1, filteredMRs[0].MergeRequest.Author.ID)
-	assert.Equal(t, 1, filteredMRs[1].MergeRequest.Author.ID)
+	assert.Equal(t, int64(1), filteredMRs[0].MergeRequest.Author.ID)
+	assert.Equal(t, int64(1), filteredMRs[1].MergeRequest.Author.ID)
 }
 
 func TestFilterMergeRequestsByAuthor_EmptyMergeRequests(t *testing.T) {
@@ -100,7 +100,7 @@ func TestFilterMergeRequestsByAuthor_EmptyMergeRequests(t *testing.T) {
 func TestFilterMergeRequestsByAuthor_OptionalAuthors(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
 			},
 		},
@@ -113,12 +113,12 @@ func TestFilterMergeRequestsByAuthor_OptionalAuthors(t *testing.T) {
 func TestFilterMergeRequestsByAuthor_NilAuthorExcluded(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: nil, // 삭제된 사용자
 			},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
 			},
 		},
@@ -134,7 +134,7 @@ func TestFilterMergeRequestsByAuthor_NilAuthorExcluded(t *testing.T) {
 
 	// author를 해석할 수 없는 MR은 어떤 author 필터에도 매칭되지 않아야 한다.
 	require.Len(t, filteredMRs, 1)
-	assert.Equal(t, 1, filteredMRs[0].MergeRequest.Author.ID)
+	assert.Equal(t, int64(1), filteredMRs[0].MergeRequest.Author.ID)
 }
 
 func TestFilterMergeRequestsByAuthor_OptionalAuthors_NilAuthorPassesThrough(t *testing.T) {
@@ -142,7 +142,7 @@ func TestFilterMergeRequestsByAuthor_OptionalAuthors_NilAuthorPassesThrough(t *t
 	// nil Author의 MR도 그대로 통과해야 한다.
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Author: nil,
 			},
 		},
@@ -159,7 +159,7 @@ func TestFilterMergeRequestsByAuthor_OptionalAuthors_NilAuthorPassesThrough(t *t
 func TestFormatMergeRequestsSummary_NilAuthorDoesNotPanic(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Title:     "ghost MR",
 				WebURL:    "https://gl/7",
 				Author:    nil, // 삭제된 사용자
@@ -186,7 +186,7 @@ func TestExecuteLegacy(t *testing.T) {
 	// Setup: 1 MR with author matching the Authors filter
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Title:                       "Fix login bug",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/42",
 				Author:                      &gitlab.BasicUser{ID: 10, Name: "Alice", Username: "alice"},
@@ -231,7 +231,7 @@ func TestExecuteSmartNotification_WebhookMode(t *testing.T) {
 	// 1 MR: no approvals, discussions resolved → needs_review
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         101,
 				Title:                       "Add dark mode",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
@@ -302,7 +302,7 @@ func TestExecuteSmartNotification_NoChanges(t *testing.T) {
 	// 1 MR: needs_review
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         101,
 				Title:                       "Add dark mode",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
@@ -361,7 +361,7 @@ func TestExecuteSmartNotification_StateFileCreated(t *testing.T) {
 
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         55,
 				Title:                       "Refactor auth module",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/55",
@@ -414,7 +414,7 @@ func TestExecuteSmartNotification_StateFileCreated(t *testing.T) {
 func TestExecuteSmartNotification_NoStatePath(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         77,
 				Title:                       "Update CI pipeline",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/77",
@@ -468,7 +468,7 @@ func TestExecute_AppliesAuthorFilterInSmartMode(t *testing.T) {
 	glMux := http.NewServeMux()
 	glMux.HandleFunc("/api/v4/projects/1/merge_requests", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode([]*gitlab.MergeRequest{
+		_ = json.NewEncoder(w).Encode([]*gitlab.BasicMergeRequest{
 			{
 				IID:                         1,
 				Title:                       "alice의 MR",
@@ -619,7 +619,7 @@ func TestExecuteSmartNotification_StateSaveFailure_ChangedBranch(t *testing.T) {
 
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         101,
 				Title:                       "Add dark mode",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
@@ -659,7 +659,7 @@ func TestExecuteSmartNotification_StateSaveFailure_NoChangesBranch(t *testing.T)
 
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         101,
 				Title:                       "Add dark mode",
 				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",

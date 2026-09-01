@@ -5,12 +5,12 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 func TestClassifyMergeRequest_HasConflicts(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                true,
 			BlockingDiscussionsResolved: true,
 		},
@@ -27,7 +27,7 @@ func TestClassifyMergeRequest_HasConflicts(t *testing.T) {
 
 func TestClassifyMergeRequest_BlockingDiscussions(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                false,
 			BlockingDiscussionsResolved: false,
 		},
@@ -45,7 +45,7 @@ func TestClassifyMergeRequest_BlockingDiscussions(t *testing.T) {
 func TestClassify_PartialApprovalNotifiesPendingReviewer(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
 		ApprovedBy: []string{"Carol"}, // 2명 중 1명 승인
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			BlockingDiscussionsResolved: true,
 			Reviewers: []*gitlab.BasicUser{
 				{Username: "carol"}, {Username: "dave"},
@@ -66,7 +66,7 @@ func TestClassify_PartialApprovalNotifiesPendingReviewer(t *testing.T) {
 func TestClassify_AllReviewersApproved(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
 		ApprovedBy: []string{"Carol", "Dave"},
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			BlockingDiscussionsResolved: true,
 			Reviewers: []*gitlab.BasicUser{
 				{Username: "carol"}, {Username: "dave"},
@@ -84,7 +84,7 @@ func TestClassify_ApprovalFromNonReviewer(t *testing.T) {
 	// 예전에는 3 > 1 비교로 작성자에게 헛알림이 갔다.
 	mr := &MergeRequestWithApprovals{
 		ApprovedBy: []string{"Maintainer"},
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			BlockingDiscussionsResolved: true,
 			Reviewers: []*gitlab.BasicUser{
 				{Username: "a"}, {Username: "b"}, {Username: "c"},
@@ -98,7 +98,7 @@ func TestClassify_ApprovalFromNonReviewer(t *testing.T) {
 
 func TestClassifyMergeRequest_ApprovedPendingMerge(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                false,
 			BlockingDiscussionsResolved: true,
 			Reviewers: []*gitlab.BasicUser{
@@ -118,7 +118,7 @@ func TestClassifyMergeRequest_ApprovedPendingMerge(t *testing.T) {
 
 func TestClassifyMergeRequest_NeedsReview(t *testing.T) {
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                false,
 			BlockingDiscussionsResolved: true,
 			Reviewers: []*gitlab.BasicUser{
@@ -140,7 +140,7 @@ func TestClassifyMergeRequest_ConflictTakesPriority(t *testing.T) {
 	// Both HasConflicts=true AND BlockingDiscussionsResolved=false
 	// HasConflicts should win due to higher priority
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                true,
 			BlockingDiscussionsResolved: false,
 			Reviewers: []*gitlab.BasicUser{
@@ -163,7 +163,7 @@ func TestClassifyMergeRequest_NoReviewers(t *testing.T) {
 	// Even though there are no actual reviewers to notify, the classification
 	// still marks the MR as needs_review targeting the reviewer role.
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                false,
 			BlockingDiscussionsResolved: true,
 			Reviewers:                   []*gitlab.BasicUser{}, // empty — no reviewers assigned
@@ -182,7 +182,7 @@ func TestClassifyMergeRequest_NoReviewers(t *testing.T) {
 func TestClassifyMergeRequest_NoReviewersNilSlice(t *testing.T) {
 	// Same as above but with nil Reviewers slice instead of empty.
 	mr := &MergeRequestWithApprovals{
-		MergeRequest: &gitlab.MergeRequest{
+		MergeRequest: &gitlab.BasicMergeRequest{
 			HasConflicts:                false,
 			BlockingDiscussionsResolved: true,
 			Reviewers:                   nil,
@@ -201,7 +201,7 @@ func TestClassifyMergeRequest_NoReviewersNilSlice(t *testing.T) {
 func TestClassifyMergeRequests_Batch(t *testing.T) {
 	mrs := []*MergeRequestWithApprovals{
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         1,
 				HasConflicts:                true,
 				BlockingDiscussionsResolved: true,
@@ -209,7 +209,7 @@ func TestClassifyMergeRequests_Batch(t *testing.T) {
 			ApprovedBy: []string{},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         2,
 				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,
@@ -220,7 +220,7 @@ func TestClassifyMergeRequests_Batch(t *testing.T) {
 			ApprovedBy: []string{},
 		},
 		{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				IID:                         3,
 				HasConflicts:                false,
 				BlockingDiscussionsResolved: true,

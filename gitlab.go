@@ -3,40 +3,40 @@ package main
 import (
 	"fmt"
 
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 //go:generate mockery --name GitLabClient
 type GitLabClient interface {
-	ListGroupProjects(groupID int, options *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, *gitlab.Response, error)
-	ListSubGroups(groupID int, opt *gitlab.ListSubGroupsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Group, *gitlab.Response, error)
-	ListProjectMergeRequests(projectID int, options *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.MergeRequest, *gitlab.Response, error)
-	GetMergeRequestApprovalsConfiguration(projectID int, mergeRequestID int) (*gitlab.MergeRequestApprovals, *gitlab.Response, error)
+	ListGroupProjects(groupID int64, options *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, *gitlab.Response, error)
+	ListSubGroups(groupID int64, opt *gitlab.ListSubGroupsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Group, *gitlab.Response, error)
+	ListProjectMergeRequests(projectID int64, options *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error)
+	GetMergeRequestApprovalsConfiguration(projectID int64, mergeRequestID int64) (*gitlab.MergeRequestApprovals, *gitlab.Response, error)
 }
 
 type MergeRequestWithApprovals struct {
-	MergeRequest *gitlab.MergeRequest
+	MergeRequest *gitlab.BasicMergeRequest
 	ApprovedBy   []string
-	ProjectID    int
+	ProjectID    int64
 }
 
 type gitLabClient struct {
 	client *gitlab.Client
 }
 
-func (c *gitLabClient) ListGroupProjects(groupID int, options *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, *gitlab.Response, error) {
+func (c *gitLabClient) ListGroupProjects(groupID int64, options *gitlab.ListGroupProjectsOptions) ([]*gitlab.Project, *gitlab.Response, error) {
 	return c.client.Groups.ListGroupProjects(groupID, options)
 }
 
-func (c *gitLabClient) ListSubGroups(groupID int, opt *gitlab.ListSubGroupsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Group, *gitlab.Response, error) {
+func (c *gitLabClient) ListSubGroups(groupID int64, opt *gitlab.ListSubGroupsOptions, options ...gitlab.RequestOptionFunc) ([]*gitlab.Group, *gitlab.Response, error) {
 	return c.client.Groups.ListSubGroups(groupID, opt, options...)
 }
 
-func (c *gitLabClient) ListProjectMergeRequests(projectID int, options *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.MergeRequest, *gitlab.Response, error) {
+func (c *gitLabClient) ListProjectMergeRequests(projectID int64, options *gitlab.ListProjectMergeRequestsOptions) ([]*gitlab.BasicMergeRequest, *gitlab.Response, error) {
 	return c.client.MergeRequests.ListProjectMergeRequests(projectID, options)
 }
 
-func (c *gitLabClient) GetMergeRequestApprovalsConfiguration(projectID int, mergeRequestID int) (*gitlab.MergeRequestApprovals, *gitlab.Response, error) {
+func (c *gitLabClient) GetMergeRequestApprovalsConfiguration(projectID int64, mergeRequestID int64) (*gitlab.MergeRequestApprovals, *gitlab.Response, error) {
 	return c.client.MergeRequestApprovals.GetConfiguration(projectID, mergeRequestID)
 }
 
@@ -51,7 +51,7 @@ func newGitLabClient(config *Config) (GitLabClient, error) {
 }
 
 func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequestWithApprovals, error) {
-	var groupIDs []int
+	var groupIDs []int64
 	for _, group := range config.Groups {
 		groupIDs = append(groupIDs, group.ID)
 
@@ -82,10 +82,10 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 
 	for _, projectID := range projectIDs {
 		options := &gitlab.ListProjectMergeRequestsOptions{
-			State:   gitlab.String("opened"),
-			OrderBy: gitlab.String("updated_at"),
-			Sort:    gitlab.String("desc"),
-			WIP:     gitlab.String("no"),
+			State:   gitlab.Ptr("opened"),
+			OrderBy: gitlab.Ptr("updated_at"),
+			Sort:    gitlab.Ptr("desc"),
+			WIP:     gitlab.Ptr("no"),
 			ListOptions: gitlab.ListOptions{
 				PerPage: 50,
 				Page:    1,
@@ -127,8 +127,8 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 	return allMRs, nil
 }
 
-func fetchProjectsFromGroups(groupIDs []int, client GitLabClient) ([]int, error) {
-	var projectIDs []int
+func fetchProjectsFromGroups(groupIDs []int64, client GitLabClient) ([]int64, error) {
+	var projectIDs []int64
 	for _, groupID := range groupIDs {
 		options := &gitlab.ListGroupProjectsOptions{
 			ListOptions: gitlab.ListOptions{
@@ -158,8 +158,8 @@ func fetchProjectsFromGroups(groupIDs []int, client GitLabClient) ([]int, error)
 	return projectIDs, nil
 }
 
-func fetchSubGroups(groupID int, client GitLabClient) ([]int, error) {
-	var groupIDs []int
+func fetchSubGroups(groupID int64, client GitLabClient) ([]int64, error) {
+	var groupIDs []int64
 
 	options := &gitlab.ListSubGroupsOptions{
 		ListOptions: gitlab.ListOptions{
@@ -192,9 +192,9 @@ func fetchSubGroups(groupID int, client GitLabClient) ([]int, error) {
 // A project reachable both through a configured group and through the
 // projects list would otherwise be crawled twice, duplicating every
 // notification and doubling the approvals API calls.
-func dedupeIDs(ids []int) []int {
-	seen := make(map[int]struct{}, len(ids))
-	result := make([]int, 0, len(ids))
+func dedupeIDs(ids []int64) []int64 {
+	seen := make(map[int64]struct{}, len(ids))
+	result := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		if _, ok := seen[id]; ok {
 			continue

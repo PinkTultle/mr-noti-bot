@@ -8,14 +8,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // makeClassifiedMR creates a ClassifiedMR for testing with minimal fields.
-func makeClassifiedMR(projectID, iid int, status MRStatus) *ClassifiedMR {
+func makeClassifiedMR(projectID, iid int64, status MRStatus) *ClassifiedMR {
 	return &ClassifiedMR{
 		MR: &MergeRequestWithApprovals{
-			MergeRequest: &gitlab.MergeRequest{IID: iid},
+			MergeRequest: &gitlab.BasicMergeRequest{IID: iid},
 			ProjectID:    projectID,
 		},
 		Status: status,
