@@ -87,12 +87,16 @@ func buildWebhookMessages(notifications []*Notification) []string {
 		}
 
 		header := statusMessages[status] + "\n"
-		current += header
+		needHeader := true // 항목이 실제로 뒤따를 때만 헤더를 넣는다 — 청크 경계에서 항목 없는 헤더만 남는 것을 방지
 
 		for _, n := range notifs {
 			if count >= maxMRsPerMessage {
 				flush()
-				current += header // \uc774\uc5b4\uc9c0\ub294 \uba54\uc2dc\uc9c0\uc5d0\ub3c4 \uc0c1\ud0dc \ud5e4\ub354\ub97c \ub2e4\uc2dc \ub123\ub294\ub2e4
+				needHeader = true
+			}
+			if needHeader {
+				current += header
+				needHeader = false
 			}
 			current += formatNotificationLine(n) + "\n"
 			if len(n.Targets) > 0 {

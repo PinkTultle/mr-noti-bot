@@ -166,6 +166,49 @@ func TestWebhookNotifier_Send_StopsOnFirstError(t *testing.T) {
 	assert.Contains(t, err.Error(), "slack down")
 }
 
+// 상태 A가 정확히 maxMRsPerMessage(40)개로 끝나고 이어서 상태 B가 등장할 때,
+// B의 헤더가 항목 없이 A의 메시지 끝에 딸려 나가지 않는지 검증한다.
+// (리뷰에서 재현된 회귀: HasConflicts 40개 + BlockingDiscussions 1개)
+func TestBuildWebhookMessages_NoDanglingHeaderAtChunkBoundary(t *testing.T) {
+	var notifications []*Notification
+	for i := 0; i < maxMRsPerMessage; i++ {
+		notifications = append(notifications, newSingleTargetNotification(
+			StatusHasConflicts,
+			fmt.Sprintf("Conflict MR %d", i),
+			fmt.Sprintf("https://gl/c/%d", i),
+			"alice", "U1"))
+	}
+	notifications = append(notifications, newSingleTargetNotification(
+		StatusBlockingDiscussions, "Blocking MR", "https://gl/b/0", "bob", "U2"))
+
+	messages := buildWebhookMessages(notifications)
+	require.Len(t, messages, 2, "상태 A가 정확히 40개로 끝나면 상태 B는 새 메시지로 넘어가야 한다")
+
+	conflictHeader := statusMessages[StatusHasConflicts]
+	blockingHeader := statusMessages[StatusBlockingDiscussions]
+
+	// (a) 헤더 없이 항목만 있는 메시지가 없다 — 모든 메시지가 알려진 상태 헤더로 시작한다
+	for i, msg := range messages {
+		assert.True(t,
+			strings.HasPrefix(msg, conflictHeader) || strings.HasPrefix(msg, blockingHeader),
+			"메시지 %d가 알려진 상태 헤더로 시작하지 않는다: %q", i, msg)
+	}
+
+	// 첫 메시지에는 다음 상태(B)의 헤더가 전혀 등장하면 안 된다 — 등장한다면
+	// 항목 없이 헤더만 딸려 나간 회귀가 재발한 것이다
+	assert.NotContains(t, messages[0], blockingHeader)
+
+	// (b) 헤더가 항목 없이 등장하는 메시지가 없다 — B의 헤더 뒤에는 반드시
+	// 실제 MR 항목(제목)이 뒤따른다
+	require.Contains(t, messages[1], blockingHeader)
+	idx := strings.Index(messages[1], blockingHeader)
+	rest := messages[1][idx+len(blockingHeader):]
+	assert.Contains(t, rest, "Blocking MR", "블로킹 헤더 뒤에 실제 항목이 없다 — 항목 없는 헤더만 남는 회귀")
+
+	// (c) B의 헤더는 새 메시지에서 정확히 한 번만 나타난다
+	assert.Equal(t, 1, strings.Count(messages[1], blockingHeader))
+}
+
 // newSingleTargetNotification은 단일 대상 알림을 조립하는 헬퍼다.
 // 기존 newTestNotification과 달리 ProjectID/IID를 채운다.
 func newSingleTargetNotification(status MRStatus, title, url, author, slackID string) *Notification {
