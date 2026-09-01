@@ -236,3 +236,36 @@ func TestLoadConfig_WebhookURLStillRequiredInLegacyOneShotMode(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "SLACK_WEBHOOK_URL")
 }
+
+// Lambda의 HandleRequest는 CronSchedule/Summary.Schedule을 보지 않고 매 호출마다
+// execute()를 무조건 부른다(스케줄이 외부 EventBridge 규칙에 있으므로). legacy +
+// summary만 설정된 구성이라도 Lambda에서는 여전히 slack.webhook_url이 필요하다.
+func TestLoadConfig_WebhookURLRequiredInLambdaEvenWithSummaryOnly(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":            "NONEXISTING.yaml",
+		"GITLAB_TOKEN":           "tok",
+		"PROJECTS":               "1",
+		"SUMMARY_SCHEDULE":       "0 9 * * 1-5",
+		"AWS_LAMBDA_RUNTIME_API": "127.0.0.1:9001",
+		// notification 블록 없음, SLACK_WEBHOOK_URL 없음
+	}}
+
+	_, err := loadConfig(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SLACK_WEBHOOK_URL")
+}
+
+// standalone에서는 round 1에서 연 예외(summary만 있고 cron이 없으면 execute()가
+// 호출되지 않는 구성)가 그대로 유지되어야 한다 — AWS_LAMBDA_RUNTIME_API만 없으면 통과.
+func TestLoadConfig_WebhookURLNotRequiredInStandaloneSummaryOnly(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":      "NONEXISTING.yaml",
+		"GITLAB_TOKEN":     "tok",
+		"PROJECTS":         "1",
+		"SUMMARY_SCHEDULE": "0 9 * * 1-5",
+		// AWS_LAMBDA_RUNTIME_API 없음 → standalone
+	}}
+
+	_, err := loadConfig(env)
+	require.NoError(t, err, "standalone summary-only 구성에서는 legacy webhook URL이 필요 없다")
+}

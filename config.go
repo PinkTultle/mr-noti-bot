@@ -208,9 +208,13 @@ func loadConfig(env Env) (*Config, error) {
 	// legacy 경로(notification 블록 없음)에서 execute()가 실제로 실행될 때만
 	// slack.webhook_url을 요구한다. summary.schedule만 설정된 구성에서는
 	// execute()가 아예 호출되지 않으므로 이 값이 소비되지 않는다.
-	if config.Notification == nil &&
-		(config.CronSchedule != "" || shouldRunOneShot(config)) &&
-		config.Slack.WebhookURL == "" {
+	// Lambda(HandleRequest)는 스케줄이 외부 EventBridge 규칙에 있어 매 호출마다
+	// execute()를 무조건 부르므로, 이 경우엔 스케줄 설정과 무관하게 항상 요구한다.
+	executeWillRun := env.Getenv("AWS_LAMBDA_RUNTIME_API") != "" ||
+		config.CronSchedule != "" ||
+		shouldRunOneShot(config)
+
+	if config.Notification == nil && executeWillRun && config.Slack.WebhookURL == "" {
 		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
 	}
 
