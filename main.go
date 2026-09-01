@@ -225,6 +225,9 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 	if config.State != nil {
 		statePath = config.State.Path
 	}
+	if statePath == "" {
+		log.Println("Warning: state.path is not configured; every run will re-notify all MRs")
+	}
 	prevState, err := loadState(statePath)
 	if err != nil {
 		if isStateCorrupted(err) {

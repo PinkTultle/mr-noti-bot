@@ -29,7 +29,6 @@ func sendSlackMessage(client SlackClient, message string) error {
 
 // --- Notifier interface ---
 
-//go:generate mockery --name Notifier
 type Notifier interface {
 	Send(notifications []*Notification) error
 }
