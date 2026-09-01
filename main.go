@@ -140,6 +140,11 @@ func execute(config *Config) error {
 		return fmt.Errorf("error fetching opened merge requests: %w", err)
 	}
 
+	// authors 필터는 모드와 무관하게 적용한다.
+	// 예전에는 legacy 경로에서만 걸러 notification 블록을 추가하는 순간
+	// 설정이 조용히 무력화됐다.
+	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
+
 	// Legacy mode: no notification config → existing behavior
 	if config.Notification == nil {
 		return executeLegacy(config, mrs)
@@ -149,10 +154,9 @@ func execute(config *Config) error {
 	return executeSmartNotification(config, mrs)
 }
 
-// executeLegacy preserves the original behavior: filter by author, format summary, send to webhook.
+// executeLegacy preserves the original behavior: format summary, send to webhook.
+// Author filtering happens once in execute(), before mode dispatch.
 func executeLegacy(config *Config, mrs []*MergeRequestWithApprovals) error {
-	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
-
 	if len(mrs) == 0 {
 		log.Println("No opened merge requests found.")
 		return nil

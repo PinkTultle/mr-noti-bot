@@ -317,6 +317,65 @@ func TestExecuteSummaryWithClient_PostsMessage(t *testing.T) {
 	mockSlack.AssertExpectations(t)
 }
 
+// TestExecuteSummaryWithClient_AppliesAuthorFilter is a regression test for
+// the bug this commit fixes: the author filter used to run only in
+// executeLegacy, so the summary path (like the smart path) silently ignored
+// config.Authors and reported every project's MRs regardless of author.
+func TestExecuteSummaryWithClient_AppliesAuthorFilter(t *testing.T) {
+	config := &Config{
+		Projects: []ConfigProject{{ID: 1}},
+		Authors:  []ConfigAuthor{{Username: "alice"}},
+	}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.MergeRequest{
+			{
+				IID:       1,
+				Title:     "alice의 MR",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+			{
+				IID:       2,
+				Title:     "bob의 MR",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/2",
+				Author:    &gitlab.BasicUser{Name: "Bob", Username: "bob"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 2).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	var captured string
+	mockSlack.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		msg := args.Get(0).(*slack.WebhookMessage)
+		captured = msg.Text
+	}).Return(nil).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.NoError(t, err)
+	assert.Contains(t, captured, "alice의 MR")
+	assert.NotContains(t, captured, "bob의 MR", "authors 필터가 summary 경로에도 적용되어야 한다")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
+}
+
 func TestExecuteSummaryWithClient_PostWebhookError(t *testing.T) {
 	config := &Config{Projects: []ConfigProject{{ID: 1}}}
 	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)

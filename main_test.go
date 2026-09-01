@@ -2,6 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -451,6 +454,72 @@ func TestExecuteSmartNotification_NoStatePath(t *testing.T) {
 	newState := buildNewState(classified)
 	err = saveState("", newState)
 	require.NoError(t, err, "saveState with empty path should be a no-op")
+}
+
+// TestExecute_AppliesAuthorFilterInSmartMode is an end-to-end regression test
+// for the bug this commit fixes: filterMergeRequestsByAuthor used to run only
+// inside executeLegacy, so adding a notification block silently re-enabled
+// every author's MRs. execute() itself has no injectable GitLab client, so
+// this drives the real execute() entry point against local HTTP stand-ins
+// for GitLab and the Slack webhook — the fetch → filter → dispatch
+// composition inside execute() runs completely unmodified.
+func TestExecute_AppliesAuthorFilterInSmartMode(t *testing.T) {
+	glMux := http.NewServeMux()
+	glMux.HandleFunc("/api/v4/projects/1/merge_requests", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode([]*gitlab.MergeRequest{
+			{
+				IID:                         1,
+				Title:                       "alice의 MR",
+				WebURL:                      "https://gitlab.example.com/test/project/-/merge_requests/1",
+				Author:                      &gitlab.BasicUser{ID: 1, Name: "Alice", Username: "alice"},
+				BlockingDiscussionsResolved: true,
+			},
+			{
+				IID:                         2,
+				Title:                       "bob의 MR",
+				WebURL:                      "https://gitlab.example.com/test/project/-/merge_requests/2",
+				Author:                      &gitlab.BasicUser{ID: 2, Name: "Bob", Username: "bob"},
+				BlockingDiscussionsResolved: true,
+			},
+		})
+	})
+	emptyApprovals := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&gitlab.MergeRequestApprovals{
+			ApprovedBy: []*gitlab.MergeRequestApproverUser{},
+		})
+	}
+	glMux.HandleFunc("/api/v4/projects/1/merge_requests/1/approvals", emptyApprovals)
+	glMux.HandleFunc("/api/v4/projects/1/merge_requests/2/approvals", emptyApprovals)
+	glServer := httptest.NewServer(glMux)
+	defer glServer.Close()
+
+	var slackBodies []string
+	slackServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		slackBodies = append(slackBodies, string(body))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer slackServer.Close()
+
+	config := &Config{
+		Projects: []ConfigProject{{ID: 1}},
+		Authors:  []ConfigAuthor{{Username: "alice"}},
+		Notification: &NotificationConfig{
+			Mode:    "webhook",
+			Webhook: &WebhookConfig{URL: slackServer.URL},
+		},
+		State: &StateConfig{Path: filepath.Join(t.TempDir(), "state.json")},
+	}
+	config.GitLab.URL = glServer.URL
+	config.GitLab.Token = "test-token"
+
+	require.NoError(t, execute(config))
+
+	require.Len(t, slackBodies, 1)
+	assert.Contains(t, slackBodies[0], "alice의 MR")
+	assert.NotContains(t, slackBodies[0], "bob의 MR", "authors 필터가 execute()의 smart 경로에도 적용되어야 한다")
 }
 
 // timePtr is a helper to create a *time.Time value.

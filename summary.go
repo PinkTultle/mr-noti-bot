@@ -243,6 +243,9 @@ func executeSummaryWithClient(config *Config, glClient GitLabClient, sc SlackCli
 		return fmt.Errorf("error fetching opened merge requests: %w", err)
 	}
 
+	// smart 경로(execute)와 동일하게, fetch 직후 author 필터를 적용한다.
+	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
+
 	classified := classifyMergeRequests(mrs)
 	messages := formatSummaryMessages(classified, resolveStaleDays(config), now)
 
