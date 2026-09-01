@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/flexoid/mergentle-reminder/mocks"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/xanzy/go-gitlab"
 )
@@ -255,4 +259,96 @@ func TestResolveStaleDays_Default(t *testing.T) {
 
 	config2 := &Config{Summary: &SummaryConfig{}}
 	assert.Equal(t, 7, resolveStaleDays(config2))
+}
+
+// --- executeSummaryWithClient tests ---
+
+// newFetchMergeRequestsOptions builds the first-page options that
+// fetchOpenedMergeRequests always sends for a project's opened MRs.
+func newFetchMergeRequestsOptions() *gitlab.ListProjectMergeRequestsOptions {
+	return &gitlab.ListProjectMergeRequestsOptions{
+		State:   gitlab.String("opened"),
+		OrderBy: gitlab.String("updated_at"),
+		Sort:    gitlab.String("desc"),
+		WIP:     gitlab.String("no"),
+		ListOptions: gitlab.ListOptions{
+			Page:    1,
+			PerPage: 50,
+		},
+	}
+}
+
+func TestExecuteSummaryWithClient_PostsMessage(t *testing.T) {
+	config := &Config{Projects: []ConfigProject{{ID: 1}}}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.MergeRequest{
+			{
+				IID:       1,
+				Title:     "Fix login bug",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	var captured string
+	mockSlack.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		msg := args.Get(0).(*slack.WebhookMessage)
+		captured = msg.Text
+	}).Return(nil).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.NoError(t, err)
+	assert.Contains(t, captured, "Fix login bug")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
+}
+
+func TestExecuteSummaryWithClient_PostWebhookError(t *testing.T) {
+	config := &Config{Projects: []ConfigProject{{ID: 1}}}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", 1, newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.MergeRequest{
+			{
+				IID:       1,
+				Title:     "Fix login bug",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", 1, 1).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	mockSlack.On("PostWebhook", mock.Anything).Return(errors.New("slack unavailable")).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error sending summary message 1/1")
+	assert.Contains(t, err.Error(), "slack unavailable")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
 }
