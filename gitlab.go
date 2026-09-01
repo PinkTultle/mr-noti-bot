@@ -64,6 +64,8 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 		groupIDs = append(groupIDs, subgroupIDs...)
 	}
 
+	groupIDs = dedupeIDs(groupIDs)
+
 	// Add projects from groups to the projects list.
 	projectIDs, err := fetchProjectsFromGroups(groupIDs, client)
 	if err != nil {
@@ -73,6 +75,8 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 	for _, project := range config.Projects {
 		projectIDs = append(projectIDs, project.ID)
 	}
+
+	projectIDs = dedupeIDs(projectIDs)
 
 	var allMRs []*MergeRequestWithApprovals
 
@@ -182,4 +186,21 @@ func fetchSubGroups(groupID int, client GitLabClient) ([]int, error) {
 	}
 
 	return groupIDs, nil
+}
+
+// dedupeIDs removes duplicate IDs while preserving first-seen order.
+// A project reachable both through a configured group and through the
+// projects list would otherwise be crawled twice, duplicating every
+// notification and doubling the approvals API calls.
+func dedupeIDs(ids []int) []int {
+	seen := make(map[int]struct{}, len(ids))
+	result := make([]int, 0, len(ids))
+	for _, id := range ids {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		result = append(result, id)
+	}
+	return result
 }

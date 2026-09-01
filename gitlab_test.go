@@ -6,6 +6,7 @@ import (
 	"github.com/flexoid/mergentle-reminder/mocks"
 	"github.com/stretchr/testify/assert"
 	mock "github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"github.com/xanzy/go-gitlab"
 )
 
@@ -209,4 +210,33 @@ func TestFetchSubGroups(t *testing.T) {
 			assert.Equal(t, tc.expectedIDs, groupIDs)
 		})
 	}
+}
+
+func TestDedupeIDs(t *testing.T) {
+	assert.Equal(t, []int{1, 2, 3}, dedupeIDs([]int{1, 2, 1, 3, 2}))
+	assert.Empty(t, dedupeIDs(nil))
+}
+
+func TestFetchOpenedMergeRequests_NoDuplicateWhenProjectAlsoInGroup(t *testing.T) {
+	config := &Config{
+		Groups:   []ConfigGroup{{ID: 1}},
+		Projects: []ConfigProject{{ID: 77}}, // 그룹 1에 속한 프로젝트
+	}
+
+	mockClient := mocks.NewGitLabClient(t)
+	mockClient.On("ListSubGroups", 1, mock.Anything).
+		Return([]*gitlab.Group{}, &gitlab.Response{CurrentPage: 1, TotalPages: 1}, nil)
+	mockClient.On("ListGroupProjects", 1, mock.Anything).
+		Return([]*gitlab.Project{{ID: 77}}, &gitlab.Response{CurrentPage: 1, TotalPages: 1}, nil)
+	// 프로젝트 77은 정확히 한 번만 조회되어야 한다
+	mockClient.On("ListProjectMergeRequests", 77, mock.Anything).
+		Return([]*gitlab.MergeRequest{{IID: 5, Title: "MR"}},
+			&gitlab.Response{CurrentPage: 1, TotalPages: 1}, nil).Once()
+	mockClient.On("GetMergeRequestApprovalsConfiguration", 77, 5).
+		Return(&gitlab.MergeRequestApprovals{}, &gitlab.Response{}, nil).Once()
+
+	mrs, err := fetchOpenedMergeRequests(config, mockClient)
+	require.NoError(t, err)
+	assert.Len(t, mrs, 1, "같은 프로젝트가 그룹과 projects 양쪽에 있어도 MR은 한 번만 나와야 한다")
+	mockClient.AssertExpectations(t)
 }
