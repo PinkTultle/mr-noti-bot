@@ -2,10 +2,23 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 )
+
+// ErrStateCorrupted marks a state file that exists but cannot be parsed.
+// Callers must not silently substitute an empty state: doing so re-notifies
+// every open MR at once.
+var ErrStateCorrupted = errors.New("state file is corrupted")
+
+// isStateCorrupted reports whether err represents a state file that exists
+// but failed to parse, as opposed to a plain I/O error.
+func isStateCorrupted(err error) bool {
+	return errors.Is(err, ErrStateCorrupted)
+}
 
 // NotificationState holds the state of previously sent notifications
 // for deduplication across polling cycles.
@@ -42,7 +55,7 @@ func loadState(path string) (*NotificationState, error) {
 
 	var state NotificationState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("error parsing state file: %w", err)
+		return nil, fmt.Errorf("%w: %v", ErrStateCorrupted, err)
 	}
 
 	if state.Notifications == nil {
@@ -52,7 +65,10 @@ func loadState(path string) (*NotificationState, error) {
 	return &state, nil
 }
 
-// saveState writes the notification state to a JSON file.
+// saveState writes the notification state atomically: it writes a temporary
+// file in the same directory and renames it over the target. A partial write
+// (SIGKILL, OOM, disk full) would otherwise leave truncated JSON, which the
+// next run treats as "no previous state" and re-notifies every MR.
 // No-op if path is empty.
 func saveState(path string, state *NotificationState) error {
 	if path == "" {
@@ -66,8 +82,30 @@ func saveState(path string, state *NotificationState) error {
 		return fmt.Errorf("error marshaling state: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
-		return fmt.Errorf("error writing state file: %w", err)
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, ".notification_state-*.tmp")
+	if err != nil {
+		return fmt.Errorf("error creating temp state file: %w", err)
+	}
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName) // rename에 성공하면 아무것도 지우지 않는다
+
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("error writing temp state file: %w", err)
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return fmt.Errorf("error syncing temp state file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("error closing temp state file: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return fmt.Errorf("error setting state file mode: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return fmt.Errorf("error replacing state file: %w", err)
 	}
 
 	return nil

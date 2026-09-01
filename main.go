@@ -190,6 +190,11 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 	}
 	prevState, err := loadState(statePath)
 	if err != nil {
+		if isStateCorrupted(err) {
+			// 손상된 상태로 빈 상태를 쓰면 전체 MR이 한꺼번에 재알림된다.
+			// 사람이 확인하도록 실패시킨다.
+			return fmt.Errorf("state file at %q is corrupted; inspect or delete it: %w", statePath, err)
+		}
 		log.Printf("Warning: could not load state: %v", err)
 		prevState = &NotificationState{Notifications: make(map[string]MRNotificationRecord)}
 	}
