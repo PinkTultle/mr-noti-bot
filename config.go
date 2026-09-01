@@ -129,9 +129,6 @@ func loadConfig(env Env) (*Config, error) {
 	if slackWebhookURL != "" {
 		config.Slack.WebhookURL = slackWebhookURL
 	}
-	if config.Slack.WebhookURL == "" {
-		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
-	}
 
 	if env := env.Getenv("AUTHORS"); env != "" {
 		config.Authors, err = parseAuthors(env)
@@ -206,6 +203,12 @@ func loadConfig(env Env) (*Config, error) {
 
 	if len(config.Projects) == 0 && len(config.Groups) == 0 {
 		return nil, fmt.Errorf("neither groups nor projects were provided")
+	}
+
+	// legacy 경로(notification 블록 없음)에서만 slack.webhook_url을 읽는다.
+	// smart/summary 모드에서는 사용되지 않으므로 요구하지 않는다.
+	if config.Notification == nil && config.Slack.WebhookURL == "" {
+		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
 	}
 
 	if config.Notification != nil {

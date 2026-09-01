@@ -114,7 +114,6 @@ func TestLoadConfig(t *testing.T) {
 		env := &MockEnv{values: map[string]string{
 			"CONFIG_PATH":       "NONEXISTING.yaml",
 			"GITLAB_TOKEN":      "tok",
-			"SLACK_WEBHOOK_URL": "webhook",
 			"PROJECTS":          "1",
 			"NOTIFICATION_MODE": "dm",
 		}}
@@ -163,4 +162,32 @@ func TestLoadConfig(t *testing.T) {
 			{ID: 918},
 		}, config.Authors)
 	})
+}
+
+func TestLoadConfig_WebhookURLNotRequiredInSmartMode(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":              "NONEXISTING.yaml",
+		"GITLAB_TOKEN":             "tok",
+		"PROJECTS":                 "1",
+		"NOTIFICATION_MODE":        "webhook",
+		"NOTIFICATION_WEBHOOK_URL": "https://hooks.slack.com/services/x",
+		// SLACK_WEBHOOK_URL 없음
+	}}
+
+	config, err := loadConfig(env)
+	require.NoError(t, err, "smart 모드에서는 legacy webhook URL이 필요 없다")
+	assert.Equal(t, "https://hooks.slack.com/services/x", config.Notification.Webhook.URL)
+}
+
+func TestLoadConfig_WebhookURLStillRequiredInLegacyMode(t *testing.T) {
+	env := &MockEnv{values: map[string]string{
+		"CONFIG_PATH":  "NONEXISTING.yaml",
+		"GITLAB_TOKEN": "tok",
+		"PROJECTS":     "1",
+		// notification 블록 없음 → legacy 경로
+	}}
+
+	_, err := loadConfig(env)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "SLACK_WEBHOOK_URL")
 }
