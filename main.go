@@ -204,7 +204,10 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 
 	if len(changed) == 0 {
 		log.Println("No MR status changes detected.")
-		return saveState(statePath, buildNewState(classified))
+		if err := saveState(statePath, buildNewState(classified)); err != nil {
+			return fmt.Errorf("error saving state: %w", err)
+		}
+		return nil
 	}
 
 	// 4. Resolve notification targets via user mapping
@@ -220,11 +223,17 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 	}
 
 	// 6. Save current state
+	//
+	// 상태 저장 실패는 어느 분기에서든 동일하게 에러로 올린다.
+	// 예전에는 변경 없음 분기에서만 에러였고, 변경 있음 분기에서는
+	// 경고 로그로 넘어가 같은 장애가 MR 활동량에 따라 다르게 보고됐다.
+	// 이 분기는 알림이 이미 발송된 뒤이므로, 그 사실을 로그와 에러
+	// 메시지 모두에 남긴다 — 다음 실행에서 중복 발송될 것임을 알려준다.
+	log.Printf("Sent %d notifications for %d changed MRs.", len(notifications), len(changed))
 	if err := saveState(statePath, buildNewState(classified)); err != nil {
-		log.Printf("Warning: could not save state: %v", err)
+		return fmt.Errorf("notifications sent but state was not saved (next run will re-notify): %w", err)
 	}
 
-	log.Printf("Sent %d notifications for %d changed MRs.", len(notifications), len(changed))
 	return nil
 }
 

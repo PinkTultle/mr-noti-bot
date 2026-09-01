@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -570,4 +571,128 @@ func TestShouldRunOneShot(t *testing.T) {
 			assert.Equal(t, tc.want, shouldRunOneShot(tc.config))
 		})
 	}
+}
+
+// TestExecuteSmartNotification_StateSaveFailureIsConsistent pins the fact
+// that saveState itself already returns an error for an unwritable path.
+// This is a regression guard, not the real fix verification: the actual
+// bug lived in executeSmartNotification, where the two branches ("no
+// changes" vs "changed") handled the same saveState failure differently.
+// See TestExecuteSmartNotification_StateSaveFailure_NoChangesBranch and
+// TestExecuteSmartNotification_StateSaveFailure_ChangedBranch below for
+// that.
+func TestExecuteSmartNotification_StateSaveFailureIsConsistent(t *testing.T) {
+	// 쓰기 불가능한 경로
+	badPath := filepath.Join(t.TempDir(), "no-such-dir", "state.json")
+
+	config := &Config{
+		State:        &StateConfig{Path: badPath},
+		Notification: &NotificationConfig{Mode: "webhook", Webhook: &WebhookConfig{URL: "https://x"}},
+		UserMapping:  []UserMappingEntry{{GitLabUsername: "alice", SlackID: "U1"}},
+	}
+
+	// 변경 있는 경우와 없는 경우 모두 error여야 한다
+	err := saveState(config.State.Path, &NotificationState{})
+	require.Error(t, err, "쓰기 불가 경로는 어느 분기에서든 error여야 한다")
+}
+
+// TestExecuteSmartNotification_StateSaveFailure_ChangedBranch drives
+// executeSmartNotification through the "changed" branch with a state path
+// that cannot be written (parent directory does not exist). Notifications
+// must already have been sent by the time saveState fails, so the error
+// must say so — the operator needs to know the next run will re-notify.
+func TestExecuteSmartNotification_StateSaveFailure_ChangedBranch(t *testing.T) {
+	var sent int
+	webhookServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent++
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer webhookServer.Close()
+
+	badPath := filepath.Join(t.TempDir(), "no-such-dir", "state.json")
+
+	config := &Config{
+		State:        &StateConfig{Path: badPath},
+		Notification: &NotificationConfig{Mode: "webhook", Webhook: &WebhookConfig{URL: webhookServer.URL}},
+		UserMapping:  []UserMappingEntry{{GitLabUsername: "bob", SlackID: "U200"}},
+	}
+
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				IID:                         101,
+				Title:                       "Add dark mode",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
+				Author:                      &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
+				BlockingDiscussionsResolved: true,
+			},
+			ApprovedBy: []string{},
+			ProjectID:  5,
+		},
+	}
+
+	err := executeSmartNotification(config, mrs)
+
+	require.Error(t, err, "쓰기 불가 상태 경로는 changed 분기에서도 error를 반환해야 한다")
+	assert.Contains(t, err.Error(), "notifications sent but state was not saved",
+		"알림이 이미 발송됐다는 사실이 에러 메시지에 남아야 한다")
+	assert.Equal(t, 1, sent, "state 저장에 실패하기 전에 알림은 이미 발송돼 있어야 한다")
+}
+
+// TestExecuteSmartNotification_StateSaveFailure_NoChangesBranch drives
+// executeSmartNotification through the "no changes" branch with a state
+// file that exists and is readable (so the MR is correctly classified as
+// unchanged) but whose directory is not writable, so the save at the end
+// fails. Before this fix this branch already returned an error; this test
+// pins that behavior and checks it happens for the same underlying failure
+// used in the ChangedBranch test above.
+func TestExecuteSmartNotification_StateSaveFailure_NoChangesBranch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("directory write permission is not reliably enforceable via chmod on Windows")
+	}
+	if os.Getuid() == 0 {
+		t.Skip("running as root bypasses directory write permission checks")
+	}
+
+	tmpDir := t.TempDir()
+	statePath := filepath.Join(tmpDir, "state.json")
+
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				IID:                         101,
+				Title:                       "Add dark mode",
+				WebURL:                      "https://gitlab.com/test/project/-/merge_requests/101",
+				Author:                      &gitlab.BasicUser{ID: 20, Name: "Bob", Username: "bob"},
+				BlockingDiscussionsResolved: true,
+			},
+			ApprovedBy: []string{},
+			ProjectID:  5,
+		},
+	}
+
+	// classified 결과와 동일한 status로 미리 state를 저장해 "변경 없음"이
+	// 되도록 만든다.
+	classified := classifyMergeRequests(mrs)
+	require.Len(t, classified, 1)
+	err := saveState(statePath, &NotificationState{
+		Notifications: map[string]MRNotificationRecord{
+			"5:101": {Status: classified[0].Status, NotifiedAt: time.Now()},
+		},
+	})
+	require.NoError(t, err)
+
+	// 디렉토리를 읽기 전용으로 바꿔 saveState의 임시 파일 생성이 실패하게
+	// 한다. 기존 state.json 파일은 여전히 읽을 수 있다.
+	require.NoError(t, os.Chmod(tmpDir, 0o555))
+	t.Cleanup(func() {
+		_ = os.Chmod(tmpDir, 0o755) // t.TempDir() 정리를 위해 권한 복구
+	})
+
+	config := &Config{State: &StateConfig{Path: statePath}}
+
+	err = executeSmartNotification(config, mrs)
+
+	require.Error(t, err, "쓰기 불가 상태 경로는 no-changes 분기에서도 error를 반환해야 한다")
+	assert.Contains(t, err.Error(), "error saving state")
 }
