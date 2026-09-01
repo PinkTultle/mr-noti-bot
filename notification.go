@@ -62,6 +62,20 @@ func resolveNotificationTargets(classified []*ClassifiedMR, mapping []UserMappin
 	var notifications []*Notification
 	for _, cmr := range classified {
 		var targets []NotificationTarget
+		// 같은 사용자가 작성자이자 리뷰어인 경우 두 번 추가되어
+		// 멘션이 중복되고 DM에 같은 MR이 두 번 나열됐다.
+		seen := make(map[string]struct{})
+		addTarget := func(slackID, username string, role TargetRole) {
+			if _, dup := seen[slackID]; dup {
+				return
+			}
+			seen[slackID] = struct{}{}
+			targets = append(targets, NotificationTarget{
+				SlackID:        slackID,
+				GitLabUsername: username,
+				Role:           role,
+			})
+		}
 
 		for _, role := range cmr.TargetRoles {
 			switch role {
@@ -73,22 +87,14 @@ func resolveNotificationTargets(classified []*ClassifiedMR, mapping []UserMappin
 					continue
 				}
 				if slackID, ok := slackMap[username]; ok {
-					targets = append(targets, NotificationTarget{
-						SlackID:        slackID,
-						GitLabUsername: username,
-						Role:           RoleAuthor,
-					})
+					addTarget(slackID, username, RoleAuthor)
 				} else if len(mapping) > 0 {
 					log.Printf("warning: no Slack mapping for GitLab user %q", username)
 				}
 			case RoleReviewer:
 				for _, reviewer := range cmr.MR.MergeRequest.Reviewers {
 					if slackID, ok := slackMap[reviewer.Username]; ok {
-						targets = append(targets, NotificationTarget{
-							SlackID:        slackID,
-							GitLabUsername: reviewer.Username,
-							Role:           RoleReviewer,
-						})
+						addTarget(slackID, reviewer.Username, RoleReviewer)
 					} else if len(mapping) > 0 {
 						log.Printf("warning: no Slack mapping for GitLab user %q", reviewer.Username)
 					}
