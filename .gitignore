@@ -52,3 +52,6 @@ slack-dm.sh
 slack-dm-lib.sh
 slack-dm-reviewer.sh
 slack-dm-guide.md
+
+# superpowers SDD 작업 공간 (스크래치)
+.superpowers/
