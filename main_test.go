@@ -106,6 +106,73 @@ func TestFilterMergeRequestsByAuthor_OptionalAuthors(t *testing.T) {
 	require.Equal(t, 1, len(filteredMRs))
 }
 
+func TestFilterMergeRequestsByAuthor_NilAuthorExcluded(t *testing.T) {
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				Author: nil, // 삭제된 사용자
+			},
+		},
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				Author: &gitlab.BasicUser{ID: 1, Name: "John Doe", Username: "johndoe"},
+			},
+		},
+	}
+	authors := []ConfigAuthor{
+		{ID: 1},
+	}
+
+	var filteredMRs []*MergeRequestWithApprovals
+	require.NotPanics(t, func() {
+		filteredMRs = filterMergeRequestsByAuthor(mrs, authors)
+	})
+
+	// author를 해석할 수 없는 MR은 어떤 author 필터에도 매칭되지 않아야 한다.
+	require.Len(t, filteredMRs, 1)
+	assert.Equal(t, 1, filteredMRs[0].MergeRequest.Author.ID)
+}
+
+func TestFilterMergeRequestsByAuthor_OptionalAuthors_NilAuthorPassesThrough(t *testing.T) {
+	// authors 필터가 비어 있으면 Author를 역참조하지 않는 조기 반환 경로를 타므로,
+	// nil Author의 MR도 그대로 통과해야 한다.
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				Author: nil,
+			},
+		},
+	}
+	authors := []ConfigAuthor{}
+
+	var filteredMRs []*MergeRequestWithApprovals
+	require.NotPanics(t, func() {
+		filteredMRs = filterMergeRequestsByAuthor(mrs, authors)
+	})
+	require.Len(t, filteredMRs, 1)
+}
+
+func TestFormatMergeRequestsSummary_NilAuthorDoesNotPanic(t *testing.T) {
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.MergeRequest{
+				Title:     "ghost MR",
+				WebURL:    "https://gl/7",
+				Author:    nil, // 삭제된 사용자
+				CreatedAt: timePtr(time.Date(2026, 1, 15, 10, 0, 0, 0, time.UTC)),
+			},
+			ApprovedBy: []string{},
+		},
+	}
+
+	var summary string
+	require.NotPanics(t, func() {
+		summary = formatMergeRequestsSummary(mrs)
+	})
+	assert.Contains(t, summary, "ghost MR")
+	assert.Contains(t, summary, "unknown")
+}
+
 // --- Integration Tests ---
 
 // TestExecuteLegacy verifies the legacy execution path: filter by author,

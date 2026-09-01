@@ -236,7 +236,7 @@ func formatMergeRequestsSummary(mrs []*MergeRequestWithApprovals) string {
 
 		summary += fmt.Sprintf(
 			":arrow_forward: <%s|%s>\n*Author:* %s\n*Created at:* %s\n*Approved by:* %s\n",
-			mr.MergeRequest.WebURL, mr.MergeRequest.Title, mr.MergeRequest.Author.Name, createdAtStr, approvedBy,
+			mr.MergeRequest.WebURL, mr.MergeRequest.Title, authorName(mr.MergeRequest), createdAtStr, approvedBy,
 		)
 
 		if extra != "" {
@@ -256,6 +256,12 @@ func filterMergeRequestsByAuthor(mrs []*MergeRequestWithApprovals, authors []Con
 
 	var filteredMRs []*MergeRequestWithApprovals
 	for _, mr := range mrs {
+		if mr.MergeRequest.Author == nil {
+			// author를 해석할 수 없는 MR(삭제된 사용자 등)은 어떤 author 필터에도
+			// 매칭시키지 않는다 — 필터는 "이 사람들의 MR만"이라는 좁히는 의도이므로,
+			// 정체불명 MR을 조용히 통과시키면 그 의도에 반한다.
+			continue
+		}
 		for _, user := range authors {
 			if (user.ID != 0 && user.ID == mr.MergeRequest.Author.ID) ||
 				(user.Username != "" && user.Username == mr.MergeRequest.Author.Username) {
