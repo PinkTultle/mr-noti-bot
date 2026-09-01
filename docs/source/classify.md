@@ -48,8 +48,8 @@ MR의 워크플로우 상태를 나타내는 문자열 상수:
 ## 의존 관계
 
 - `gitlab.go`의 `MergeRequestWithApprovals` 구조체
-- `github.com/xanzy/go-gitlab` (`MergeRequest`의 `HasConflicts`,
-  `BlockingDiscussionsResolved`, `Reviewers` 필드)
+- `gitlab.com/gitlab-org/api/client-go` (`*gitlab.BasicMergeRequest`의
+  `HasConflicts`, `BlockingDiscussionsResolved`, `Reviewers` 필드)
 
 ## 주의사항
 

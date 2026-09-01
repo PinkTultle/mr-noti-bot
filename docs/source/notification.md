@@ -15,12 +15,19 @@ GitLab MR 분류 결과를 바탕으로 Slack 알림 대상자를 결정하고, 
 
 ### `authorName(mr) string` / `authorUsername(mr) string`
 
-`*gitlab.MergeRequest`에서 작성자 표시 이름/username을 꺼내는 nil-가드
+`*gitlab.BasicMergeRequest`에서 작성자 표시 이름/username을 꺼내는 nil-가드
 헬퍼. `mr`이 `nil`이거나 `mr.Author`가 `nil`(삭제된 사용자, 토큰이 조회할
 수 없는 서비스 계정 등)이면 각각 `"unknown"`/`""`을 반환해, 호출부가
 매번 `mr.Author == nil`을 따로 체크하지 않고도 안전하게 역참조할 수 있게
 한다. `resolveNotificationTargets`와 `main.go`/`slack.go`의 메시지 포맷
 함수들이 공통으로 사용한다.
+
+### `mrCreatedAt(mr) (time.Time, bool)`
+
+같은 패턴의 nil-가드 헬퍼. `mr`이 `nil`이거나 `mr.CreatedAt`이 `nil`이면
+`ok=false`를 반환한다. `main.go`(legacy 경로)와 `summary.go`의
+`isStale`/`formatMRLine`이 공통으로 사용해, MR 생성 시각을 다루는 세
+지점이 같은 규칙을 따르게 한다.
 
 ### `resolveNotificationTargets(classified, mapping) []*Notification`
 - 분류된 MR 목록과 사용자 매핑 테이블을 받아 Notification 목록 생성

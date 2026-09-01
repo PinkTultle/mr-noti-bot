@@ -20,14 +20,14 @@ GitLab API 호출을 추상화하는 인터페이스. 메서드 4개만 노출�
 
 | 필드 | 타입 | 설명 |
 |------|------|------|
-| `MergeRequest` | `*gitlab.MergeRequest` | go-gitlab 원본 MR 객체 |
+| `MergeRequest` | `*gitlab.BasicMergeRequest` | client-go 원본 MR 객체 |
 | `ApprovedBy` | `[]string` | 승인자 이름 목록 |
-| `ProjectID` | `int` | MR이 속한 프로젝트 ID |
+| `ProjectID` | `int64` | MR이 속한 프로젝트 ID |
 
 ### gitLabClient
 
-`GitLabClient`의 실제 구현체. `github.com/xanzy/go-gitlab`의 `*gitlab.Client`를
-감싸 각 메서드를 그대로 위임한다.
+`GitLabClient`의 실제 구현체. `gitlab.com/gitlab-org/api/client-go`의
+`*gitlab.Client`를 감싸 각 메서드를 그대로 위임한다.
 
 ## 주요 함수
 
@@ -49,9 +49,12 @@ GitLab 클라이언트 구성을 바꿀 때 여러 진입점을 따로 고칠 �
 5. 전체 프로젝트 ID 목록을 다시 `dedupeIDs`로 중복 제거한다.
 6. 프로젝트마다 `opened` 상태 MR을 페이지네이션(`PerPage: 50`)으로 전부 가져오고,
    MR 하나당 `GetMergeRequestApprovalsConfiguration`을 별도로 호출해 승인자
-   이름을 채워 `MergeRequestWithApprovals`를 만든다.
+   이름을 채워 `MergeRequestWithApprovals`를 만든다. `ListProjectMergeRequests`는
+   `[]*gitlab.BasicMergeRequest`를 반환한다 — 이전에는 (필드가 더 많은)
+   `*gitlab.MergeRequest`였다. `classify.go`/`notification.go`/`summary.go`가
+   소비하는 MR 타입도 전부 `*gitlab.BasicMergeRequest`다.
 
-### `dedupeIDs(ids) -> []int`
+### `dedupeIDs(ids) -> []int64`
 
 순서를 보존하며 중복 정수를 제거한다. 어떤 프로젝트가 그룹을 통해서도, `projects`
 목록에도 동시에 지정돼 있으면 이 함수가 없을 때 두 번 순회되어 알림이 중복되고
@@ -65,7 +68,7 @@ GitLab 클라이언트 구성을 바꿀 때 여러 진입점을 따로 고칠 �
 
 ## 의존 관계
 
-- `github.com/xanzy/go-gitlab`: API 타입과 클라이언트
+- `gitlab.com/gitlab-org/api/client-go`: API 타입과 클라이언트
 - `config.go`: `Config`, `ConfigGroup`, `ConfigProject`
 - `classify.go`, `notification.go`, `state.go`, `summary.go`: 이 파일이 만드는
   `MergeRequestWithApprovals`를 소비

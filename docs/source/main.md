@@ -48,7 +48,7 @@ EventBridge 등 트리거가 보내는 이벤트의 `job` 필드로 어떤 파�
 - `summary.go` — `executeSummary` (summaryJob 콜백이자 `jobSummary` 분기)
 - `github.com/reugn/go-quartz` — cron 스케줄링
 - `github.com/aws/aws-lambda-go/lambda` — Lambda 런타임
-- `github.com/xanzy/go-gitlab` — GitLab API 클라이언트
+- `gitlab.com/gitlab-org/api/client-go` — GitLab API 클라이언트
 
 ## 주의사항
 
