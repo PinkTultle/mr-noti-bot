@@ -47,3 +47,8 @@ cdk/.env
 
 # Claude Code local settings (session-local)
 .claude/settings.local.json
+# Slack DM 헬퍼 스크립트 — 실제 봇 토큰 포함, 커밋 금지
+slack-dm.sh
+slack-dm-lib.sh
+slack-dm-reviewer.sh
+slack-dm-guide.md
