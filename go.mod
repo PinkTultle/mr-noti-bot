@@ -1,11 +1,9 @@
 module github.com/flexoid/mergentle-reminder
 
-go 1.24.0
-
-toolchain go1.24.2
+go 1.25
 
 require (
-	github.com/slack-go/slack v0.13.1
+	github.com/slack-go/slack v0.29.0
 	github.com/stretchr/testify v1.11.1
 	gopkg.in/yaml.v2 v2.4.0
 )
