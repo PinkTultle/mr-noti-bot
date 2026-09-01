@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
@@ -23,6 +24,14 @@ func authorUsername(mr *gitlab.BasicMergeRequest) string {
 		return ""
 	}
 	return mr.Author.Username
+}
+
+// mrCreatedAt returns the MR creation time, or ok=false when absent.
+func mrCreatedAt(mr *gitlab.BasicMergeRequest) (time.Time, bool) {
+	if mr == nil || mr.CreatedAt == nil {
+		return time.Time{}, false
+	}
+	return *mr.CreatedAt, true
 }
 
 // NotificationTarget represents a single user to notify, resolved from

@@ -282,7 +282,10 @@ func formatMergeRequestsSummary(mrs []*MergeRequestWithApprovals) string {
 			approvedBy = "None"
 		}
 
-		createdAtStr := mr.MergeRequest.CreatedAt.Format("2 January 2006, 15:04 MST")
+		createdAtStr := "unknown"
+		if t, ok := mrCreatedAt(mr.MergeRequest); ok {
+			createdAtStr = t.Format("2 January 2006, 15:04 MST")
+		}
 
 		var extra string
 		if !mr.MergeRequest.BlockingDiscussionsResolved {

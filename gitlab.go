@@ -104,9 +104,12 @@ func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequ
 					return nil, err
 				}
 
-				approvedBy := make([]string, len(approvals.ApprovedBy))
-				for i, approver := range approvals.ApprovedBy {
-					approvedBy[i] = approver.User.Name
+				approvedBy := make([]string, 0, len(approvals.ApprovedBy))
+				for _, approver := range approvals.ApprovedBy {
+					if approver == nil || approver.User == nil {
+						continue // 해석 불가한 승인자는 승인 집계에서 제외한다
+					}
+					approvedBy = append(approvedBy, approver.User.Name)
 				}
 
 				allMRs = append(allMRs, &MergeRequestWithApprovals{

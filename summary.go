@@ -71,14 +71,14 @@ func formatRelativeTime(t time.Time, now time.Time) string {
 
 // isStale reports whether the MR has been open at least staleDays.
 func isStale(mr *ClassifiedMR, staleDays int, now time.Time) bool {
-	if mr == nil || mr.MR == nil || mr.MR.MergeRequest == nil {
+	if mr == nil || mr.MR == nil {
 		return false
 	}
-	createdAt := mr.MR.MergeRequest.CreatedAt
-	if createdAt == nil {
+	createdAt, ok := mrCreatedAt(mr.MR.MergeRequest)
+	if !ok {
 		return false
 	}
-	return now.Sub(*createdAt) >= time.Duration(staleDays)*24*time.Hour
+	return now.Sub(createdAt) >= time.Duration(staleDays)*24*time.Hour
 }
 
 // groupClassifiedByStatus buckets MRs by their classification status.
@@ -108,8 +108,8 @@ func formatMRLine(mr *ClassifiedMR, staleDays int, now time.Time) string {
 	}
 
 	rel := ""
-	if mr.MR.MergeRequest.CreatedAt != nil {
-		rel = formatRelativeTime(*mr.MR.MergeRequest.CreatedAt, now)
+	if createdAt, ok := mrCreatedAt(mr.MR.MergeRequest); ok {
+		rel = formatRelativeTime(createdAt, now)
 	}
 
 	if rel != "" {

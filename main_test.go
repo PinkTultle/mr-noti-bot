@@ -177,6 +177,27 @@ func TestFormatMergeRequestsSummary_NilAuthorDoesNotPanic(t *testing.T) {
 	assert.Contains(t, summary, "unknown")
 }
 
+func TestFormatMergeRequestsSummary_NilCreatedAtDoesNotPanic(t *testing.T) {
+	mrs := []*MergeRequestWithApprovals{
+		{
+			MergeRequest: &gitlab.BasicMergeRequest{
+				Title:     "no timestamp MR",
+				WebURL:    "https://gl/8",
+				Author:    &gitlab.BasicUser{ID: 1, Name: "Alice", Username: "alice"},
+				CreatedAt: nil,
+			},
+			ApprovedBy: []string{},
+		},
+	}
+
+	var summary string
+	require.NotPanics(t, func() {
+		summary = formatMergeRequestsSummary(mrs)
+	})
+	assert.Contains(t, summary, "no timestamp MR")
+	assert.Contains(t, summary, "unknown")
+}
+
 // --- Integration Tests ---
 
 // TestExecuteLegacy verifies the legacy execution path: filter by author,

@@ -88,6 +88,62 @@ func TestFetchOpenedMergeRequests(t *testing.T) {
 	assert.Equal(t, 0, len(mrs[2].ApprovedBy))
 }
 
+// TestFetchOpenedMergeRequests_NilApproverSkipped guards against a nil
+// dereference on a GitLab approver we cannot resolve (e.g. a deleted user),
+// and against the length of ApprovedBy growing past the number of approvers
+// that were actually resolved (a pre-allocation bug that would otherwise
+// leave blank entries and inflate the approval count used by classify.go).
+func TestFetchOpenedMergeRequests_NilApproverSkipped(t *testing.T) {
+	config := &Config{
+		Projects: []ConfigProject{
+			{ID: 1},
+		},
+	}
+
+	mockGitLabClient := mocks.NewGitLabClient(t)
+
+	options := gitlab.ListProjectMergeRequestsOptions{
+		State:   gitlab.Ptr("opened"),
+		OrderBy: gitlab.Ptr("updated_at"),
+		Sort:    gitlab.Ptr("desc"),
+		WIP:     gitlab.Ptr("no"),
+		ListOptions: gitlab.ListOptions{
+			Page:    1,
+			PerPage: 50,
+		},
+	}
+
+	mockGitLabClient.On("ListProjectMergeRequests", config.Projects[0].ID, &options).Return(
+		[]*gitlab.BasicMergeRequest{{IID: 1}},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+
+	mockGitLabClient.On("GetMergeRequestApprovalsConfiguration", config.Projects[0].ID, int64(1)).Return(
+		&gitlab.MergeRequestApprovals{
+			ApprovedBy: []*gitlab.MergeRequestApproverUser{
+				{User: &gitlab.BasicUser{Name: "John Doe"}},
+				{User: nil},
+				nil,
+			},
+		},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	var mrs []*MergeRequestWithApprovals
+	var err error
+	require.NotPanics(t, func() {
+		mrs, err = fetchOpenedMergeRequests(config, mockGitLabClient)
+	})
+
+	mockGitLabClient.AssertExpectations(t)
+	require.NoError(t, err)
+	require.Len(t, mrs, 1)
+	assert.Equal(t, 1, len(mrs[0].ApprovedBy))
+	assert.Equal(t, "John Doe", mrs[0].ApprovedBy[0])
+}
+
 func TestFetchProjectsFromGroups(t *testing.T) {
 	groups := []int64{1, 2}
 
