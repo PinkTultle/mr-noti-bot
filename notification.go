@@ -4,7 +4,26 @@ import (
 	"fmt"
 	"log"
 	"strings"
+
+	"github.com/xanzy/go-gitlab"
 )
+
+// authorName returns the MR author display name, or "unknown" when the
+// author is absent (deleted user, or a service account the token cannot resolve).
+func authorName(mr *gitlab.MergeRequest) string {
+	if mr == nil || mr.Author == nil {
+		return "unknown"
+	}
+	return mr.Author.Name
+}
+
+// authorUsername returns the MR author username, or "" when absent.
+func authorUsername(mr *gitlab.MergeRequest) string {
+	if mr == nil || mr.Author == nil {
+		return ""
+	}
+	return mr.Author.Username
+}
 
 // NotificationTarget represents a single user to notify, resolved from
 // GitLab username to Slack ID via user_mapping configuration.
@@ -47,7 +66,12 @@ func resolveNotificationTargets(classified []*ClassifiedMR, mapping []UserMappin
 		for _, role := range cmr.TargetRoles {
 			switch role {
 			case RoleAuthor:
-				username := cmr.MR.MergeRequest.Author.Username
+				username := authorUsername(cmr.MR.MergeRequest)
+				if username == "" {
+					log.Printf("warning: MR %s has no resolvable author; skipping author notification",
+						cmr.MR.MergeRequest.WebURL)
+					continue
+				}
 				if slackID, ok := slackMap[username]; ok {
 					targets = append(targets, NotificationTarget{
 						SlackID:        slackID,
@@ -76,7 +100,7 @@ func resolveNotificationTargets(classified []*ClassifiedMR, mapping []UserMappin
 		mrInfo := fmt.Sprintf("<%s|%s> (by %s)",
 			cmr.MR.MergeRequest.WebURL,
 			cmr.MR.MergeRequest.Title,
-			cmr.MR.MergeRequest.Author.Name,
+			authorName(cmr.MR.MergeRequest),
 		)
 
 		notifications = append(notifications, &Notification{

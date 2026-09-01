@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/xanzy/go-gitlab"
 )
 
@@ -150,4 +151,39 @@ func TestFormatMentions(t *testing.T) {
 func TestFormatMentions_Empty(t *testing.T) {
 	result := formatMentions([]NotificationTarget{})
 	assert.Equal(t, "", result)
+}
+
+func TestResolveNotificationTargets_NilAuthorDoesNotPanic(t *testing.T) {
+	classified := []*ClassifiedMR{{
+		Status:      StatusNeedsReview,
+		TargetRoles: []TargetRole{RoleAuthor, RoleReviewer},
+		MR: &MergeRequestWithApprovals{
+			ProjectID: 1,
+			MergeRequest: &gitlab.MergeRequest{
+				IID: 7, Title: "ghost MR", WebURL: "https://gl/7",
+				Author:    nil, // 삭제된 사용자
+				Reviewers: []*gitlab.BasicUser{{Username: "carol"}},
+			},
+		},
+	}}
+
+	var notifications []*Notification
+	require.NotPanics(t, func() {
+		notifications = resolveNotificationTargets(classified,
+			[]UserMappingEntry{{GitLabUsername: "carol", SlackID: "U_CAROL"}})
+	})
+
+	require.Len(t, notifications, 1)
+	assert.Contains(t, notifications[0].Message, "ghost MR")
+	// author를 해석할 수 없어도 리뷰어 알림은 살아있어야 한다
+	assert.Len(t, notifications[0].Targets, 1)
+	assert.Equal(t, "U_CAROL", notifications[0].Targets[0].SlackID)
+}
+
+func TestFormatNotificationLine_NilAuthor(t *testing.T) {
+	n := &Notification{MR: &ClassifiedMR{MR: &MergeRequestWithApprovals{
+		MergeRequest: &gitlab.MergeRequest{Title: "t", WebURL: "u", Author: nil},
+	}}}
+	require.NotPanics(t, func() { _ = formatNotificationLine(n) })
+	assert.Contains(t, formatNotificationLine(n), "unknown")
 }

@@ -78,7 +78,7 @@ func formatNotificationLine(n *Notification) string {
 	return fmt.Sprintf("<%s|%s> (by %s)",
 		n.MR.MR.MergeRequest.WebURL,
 		n.MR.MR.MergeRequest.Title,
-		n.MR.MR.MergeRequest.Author.Name)
+		authorName(n.MR.MR.MergeRequest))
 }
 
 // groupNotificationsByStatus groups notifications by their MR status
