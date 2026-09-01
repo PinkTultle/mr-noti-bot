@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 
@@ -236,8 +237,10 @@ func TestDMNotifier_APIError(t *testing.T) {
 		Return("", "", nil).Once()
 
 	err := notifier.Send([]*Notification{n1, n2})
-	// Should not return error (errors are logged, sending continues)
-	assert.NoError(t, err)
+	// 실패한 대상이 있으면 반드시 error를 반환해야 한다 — 그래야 호출부가
+	// saveState를 건너뛰고, 실패한 알림이 다음 사이클에 재시도된다.
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "U100")
 	mockAPI.AssertExpectations(t)
 }
 
@@ -289,6 +292,33 @@ func TestDMNotifier_EmptyNotifications(t *testing.T) {
 	notifier := &DMNotifier{token: "xoxb-test-token"}
 	err := notifier.Send([]*Notification{})
 	assert.NoError(t, err)
+}
+
+func TestDMNotifier_Send_ReturnsErrorOnPartialFailure(t *testing.T) {
+	mockAPI := mocks.NewSlackAPI(t)
+	mockAPI.On("PostMessage", "U_OK", mock.Anything).Return("", "", nil)
+	mockAPI.On("PostMessage", "U_BAD", mock.Anything).
+		Return("", "", errors.New("channel_not_found"))
+
+	n := &DMNotifier{token: "xoxb-test", client: mockAPI}
+	err := n.Send([]*Notification{
+		newSingleTargetNotification(StatusNeedsReview, "MR A", "https://gl/1", "alice", "U_OK"),
+		newSingleTargetNotification(StatusNeedsReview, "MR B", "https://gl/2", "bob", "U_BAD"),
+	})
+
+	require.Error(t, err, "DM 전송 실패는 반드시 호출부에 전달되어야 한다")
+	assert.Contains(t, err.Error(), "1")
+}
+
+func TestDMNotifier_Send_NilOnAllSuccess(t *testing.T) {
+	mockAPI := mocks.NewSlackAPI(t)
+	mockAPI.On("PostMessage", mock.Anything, mock.Anything).Return("", "", nil)
+
+	n := &DMNotifier{token: "xoxb-test", client: mockAPI}
+	err := n.Send([]*Notification{
+		newSingleTargetNotification(StatusNeedsReview, "MR A", "https://gl/1", "alice", "U1"),
+	})
+	require.NoError(t, err)
 }
 
 // --- LegacyNotifier tests ---

@@ -117,23 +117,27 @@ func (d *DMNotifier) Send(notifications []*Notification) error {
 
 	byTarget := groupNotificationsByTarget(notifications)
 
+	// 한 대상이 실패해도 나머지 전송은 계속하되, 실패는 반드시 반환한다.
+	// nil을 반환하면 호출부가 saveState를 진행해 실패한 알림이
+	// 중복제거에 걸려 영구 유실된다.
+	var failed []string
 	for slackID, notifs := range byTarget {
 		text := "당신에게 액션이 필요한 MR이 있습니다:\n\n"
 		for _, n := range notifs {
-			text += fmt.Sprintf("%s\n\u2022 <%s|%s> (by %s)\n\n",
-				statusMessages[n.MR.Status],
-				n.MR.MR.MergeRequest.WebURL,
-				n.MR.MR.MergeRequest.Title,
-				n.MR.MR.MergeRequest.Author.Name)
+			text += fmt.Sprintf("%s\n\u2022 %s\n\n",
+				statusMessages[n.MR.Status], formatNotificationLine(n))
 		}
 
-		_, _, err := d.client.PostMessage(slackID, slack.MsgOptionText(text, false))
-		if err != nil {
+		if _, _, err := d.client.PostMessage(slackID, slack.MsgOptionText(text, false)); err != nil {
 			log.Printf("error sending DM to %s: %v", slackID, err)
-			// Continue sending to other targets
+			failed = append(failed, slackID)
 		}
 	}
 
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to send DM to %d of %d targets: %v",
+			len(failed), len(byTarget), failed)
+	}
 	return nil
 }
 
