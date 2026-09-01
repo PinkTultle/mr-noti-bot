@@ -110,6 +110,19 @@ func TestLoadConfig(t *testing.T) {
 		assert.Equal(t, 14, config.Summary.StaleDays)
 	})
 
+	t.Run("dm mode without bot token fails", func(t *testing.T) {
+		env := &MockEnv{values: map[string]string{
+			"CONFIG_PATH":       "NONEXISTING.yaml",
+			"GITLAB_TOKEN":      "tok",
+			"SLACK_WEBHOOK_URL": "webhook",
+			"PROJECTS":          "1",
+			"NOTIFICATION_MODE": "dm",
+		}}
+		_, err := loadConfig(env)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "NOTIFICATION_BOT_TOKEN")
+	})
+
 	t.Run("SUMMARY_STALE_DAYS parsing error", func(t *testing.T) {
 		env := &MockEnv{values: map[string]string{
 			"GITLAB_TOKEN":       "token",

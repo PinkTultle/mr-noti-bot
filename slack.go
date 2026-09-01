@@ -171,15 +171,22 @@ func (l *LegacyNotifier) Send(notifications []*Notification) error {
 // --- Factory ---
 
 // newNotifier creates the appropriate Notifier based on config.
-// Returns LegacyNotifier when notification config is absent.
-func newNotifier(config *Config) Notifier {
+// Returns an error when the sub-block required by the selected mode is absent,
+// instead of panicking at the first scheduled tick.
+func newNotifier(config *Config) (Notifier, error) {
 	if config.Notification == nil {
-		return &LegacyNotifier{client: &slackClient{webhookURL: config.Slack.WebhookURL}}
+		return &LegacyNotifier{client: &slackClient{webhookURL: config.Slack.WebhookURL}}, nil
 	}
 	switch config.Notification.Mode {
 	case "dm":
-		return &DMNotifier{token: config.Notification.Bot.Token}
+		if config.Notification.Bot == nil || config.Notification.Bot.Token == "" {
+			return nil, fmt.Errorf("notification mode is %q but bot token is not configured", "dm")
+		}
+		return &DMNotifier{token: config.Notification.Bot.Token}, nil
 	default:
-		return &WebhookNotifier{webhookURL: config.Notification.Webhook.URL}
+		if config.Notification.Webhook == nil || config.Notification.Webhook.URL == "" {
+			return nil, fmt.Errorf("notification mode is %q but webhook url is not configured", config.Notification.Mode)
+		}
+		return &WebhookNotifier{webhookURL: config.Notification.Webhook.URL}, nil
 	}
 }

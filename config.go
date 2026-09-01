@@ -208,6 +208,21 @@ func loadConfig(env Env) (*Config, error) {
 		return nil, fmt.Errorf("neither groups nor projects were provided")
 	}
 
+	if config.Notification != nil {
+		switch config.Notification.Mode {
+		case "dm":
+			if config.Notification.Bot == nil || config.Notification.Bot.Token == "" {
+				return nil, fmt.Errorf("NOTIFICATION_BOT_TOKEN (or notification.bot.token) is required when notification mode is \"dm\"")
+			}
+		case "webhook", "":
+			if config.Notification.Webhook == nil || config.Notification.Webhook.URL == "" {
+				return nil, fmt.Errorf("NOTIFICATION_WEBHOOK_URL (or notification.webhook.url) is required when notification mode is \"webhook\"")
+			}
+		default:
+			return nil, fmt.Errorf("unknown notification mode %q (expected \"webhook\" or \"dm\")", config.Notification.Mode)
+		}
+	}
+
 	return config, nil
 }
 

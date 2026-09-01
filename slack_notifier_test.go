@@ -326,7 +326,8 @@ func TestNewNotifier_Legacy(t *testing.T) {
 	}
 	config.Slack.WebhookURL = "https://hooks.slack.com/legacy"
 
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	require.NoError(t, err)
 
 	legacy, ok := notifier.(*LegacyNotifier)
 	require.True(t, ok, "expected *LegacyNotifier")
@@ -341,7 +342,8 @@ func TestNewNotifier_Webhook(t *testing.T) {
 		},
 	}
 
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	require.NoError(t, err)
 
 	wn, ok := notifier.(*WebhookNotifier)
 	require.True(t, ok, "expected *WebhookNotifier")
@@ -356,7 +358,8 @@ func TestNewNotifier_DM(t *testing.T) {
 		},
 	}
 
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	require.NoError(t, err)
 
 	dm, ok := notifier.(*DMNotifier)
 	require.True(t, ok, "expected *DMNotifier")
@@ -373,10 +376,25 @@ func TestNewNotifier_DefaultMode(t *testing.T) {
 		},
 	}
 
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	require.NoError(t, err)
 
 	_, ok := notifier.(*WebhookNotifier)
 	assert.True(t, ok, "expected *WebhookNotifier for default/empty mode")
+}
+
+func TestNewNotifier_DMModeWithoutBotConfig(t *testing.T) {
+	config := &Config{Notification: &NotificationConfig{Mode: "dm"}} // Bot이 nil
+	_, err := newNotifier(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bot")
+}
+
+func TestNewNotifier_WebhookModeWithoutWebhookConfig(t *testing.T) {
+	config := &Config{Notification: &NotificationConfig{Mode: "webhook"}} // Webhook이 nil
+	_, err := newNotifier(config)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "webhook")
 }
 
 // --- groupNotificationsByStatus tests ---

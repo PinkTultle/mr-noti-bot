@@ -202,7 +202,10 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 	notifications := resolveNotificationTargets(changed, config.UserMapping)
 
 	// 5. Send via configured notifier
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	if err != nil {
+		return fmt.Errorf("error creating notifier: %w", err)
+	}
 	if err := notifier.Send(notifications); err != nil {
 		return fmt.Errorf("error sending notifications: %w", err)
 	}
