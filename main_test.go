@@ -696,3 +696,15 @@ func TestExecuteSmartNotification_StateSaveFailure_NoChangesBranch(t *testing.T)
 	require.Error(t, err, "쓰기 불가 상태 경로는 no-changes 분기에서도 error를 반환해야 한다")
 	assert.Contains(t, err.Error(), "error saving state")
 }
+
+func TestLambdaInput_SelectsSummaryJob(t *testing.T) {
+	assert.Equal(t, "summary", LambdaInput{Job: "summary"}.normalizedJob())
+	assert.Equal(t, "notify", LambdaInput{}.normalizedJob(), "빈 값은 기본 알림 잡이다")
+	assert.Equal(t, "notify", LambdaInput{Job: "notify"}.normalizedJob())
+}
+
+func TestLambdaInput_UnknownJobIsRejected(t *testing.T) {
+	_, err := runLambdaJob(&Config{}, LambdaInput{Job: "bogus"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "bogus")
+}

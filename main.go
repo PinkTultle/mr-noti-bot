@@ -111,7 +111,20 @@ func registerSummaryJob(sched quartz.Scheduler, config *Config) error {
 }
 
 // LambdaInput represents the input event for the Lambda function.
-type LambdaInput struct{}
+// EventBridge rules select which job to run: {"job":"summary"} for the
+// periodic report, anything else (or an empty event) for notifications.
+type LambdaInput struct {
+	Job string `json:"job"`
+}
+
+// normalizedJob returns the job to run, defaulting to "notify" so existing
+// EventBridge rules that send an empty event keep triggering notifications.
+func (i LambdaInput) normalizedJob() string {
+	if i.Job == "" {
+		return "notify"
+	}
+	return i.Job
+}
 
 // HandleRequest is the main Lambda handler function.
 func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
@@ -121,12 +134,27 @@ func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
 		return "", err
 	}
 
-	err = execute(config)
-	if err != nil {
-		return "", err
-	}
+	return runLambdaJob(config, input)
+}
 
-	return "Success", nil
+// runLambdaJob dispatches to the job requested by input. Split out from
+// HandleRequest so it can be tested without going through loadConfig, which
+// reads real environment variables.
+func runLambdaJob(config *Config, input LambdaInput) (string, error) {
+	switch input.normalizedJob() {
+	case "notify":
+		if err := execute(config); err != nil {
+			return "", err
+		}
+		return "Success", nil
+	case "summary":
+		if err := executeSummary(config); err != nil {
+			return "", err
+		}
+		return "Success", nil
+	default:
+		return "", fmt.Errorf("unknown lambda job %q (expected \"notify\" or \"summary\")", input.Job)
+	}
 }
 
 func execute(config *Config) error {
