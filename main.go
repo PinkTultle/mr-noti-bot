@@ -60,7 +60,10 @@ func runScheduler(config *Config) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sched := quartz.NewStdScheduler()
+	sched, err := quartz.NewStdScheduler()
+	if err != nil {
+		log.Fatalf("Error creating scheduler: %v", err)
+	}
 	sched.Start(ctx)
 
 	if config.CronSchedule != "" {

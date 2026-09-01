@@ -9,8 +9,8 @@ require (
 )
 
 require (
-	github.com/aws/aws-lambda-go v1.49.0
-	github.com/reugn/go-quartz v0.13.0
+	github.com/aws/aws-lambda-go v1.54.0 // v1.55.0부터 go 1.26 요구 — go.mod/CI/Dockerfile을 또 올리기엔 이득(패치 1개)이 작아 보류
+	github.com/reugn/go-quartz v0.15.2
 	gitlab.com/gitlab-org/api/client-go v1.46.0
 )
 
