@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/slack-go/slack"
-	"github.com/xanzy/go-gitlab"
 )
 
 // maxMRsPerMessage bounds the number of MRs packed into a single Slack summary
@@ -226,29 +225,29 @@ func formatSummaryMessages(classified []*ClassifiedMR, staleDays int, now time.T
 // render message(s), and post to the configured webhook. Independent of
 // smart-notification state tracking.
 func executeSummary(config *Config) error {
+	glClient, err := newGitLabClient(config)
+	if err != nil {
+		return err
+	}
 	webhookURL := resolveSummaryWebhookURL(config)
 	if webhookURL == "" {
 		return fmt.Errorf("no webhook URL configured for summary (set summary.webhook_url or notification.webhook.url)")
 	}
+	return executeSummaryWithClient(config, glClient, &slackClient{webhookURL: webhookURL}, time.Now())
+}
 
-	glClient, err := gitlab.NewClient(config.GitLab.Token,
-		gitlab.WithBaseURL(config.GitLab.URL))
-	if err != nil {
-		return fmt.Errorf("error creating GitLab client: %w", err)
-	}
-
-	client := &gitLabClient{client: glClient}
-
-	mrs, err := fetchOpenedMergeRequests(config, client)
+// executeSummaryWithClient는 주입된 클라이언트로 요약을 전송한다. 테스트 진입점.
+func executeSummaryWithClient(config *Config, glClient GitLabClient, sc SlackClient, now time.Time) error {
+	mrs, err := fetchOpenedMergeRequests(config, glClient)
 	if err != nil {
 		return fmt.Errorf("error fetching opened merge requests: %w", err)
 	}
 
 	classified := classifyMergeRequests(mrs)
-	messages := formatSummaryMessages(classified, resolveStaleDays(config), time.Now())
+	messages := formatSummaryMessages(classified, resolveStaleDays(config), now)
 
 	for i, msg := range messages {
-		if err := slack.PostWebhook(webhookURL, &slack.WebhookMessage{Text: msg}); err != nil {
+		if err := sc.PostWebhook(&slack.WebhookMessage{Text: msg}); err != nil {
 			return fmt.Errorf("error sending summary message %d/%d: %w", i+1, len(messages), err)
 		}
 	}

@@ -1,6 +1,10 @@
 package main
 
-import "github.com/xanzy/go-gitlab"
+import (
+	"fmt"
+
+	"github.com/xanzy/go-gitlab"
+)
 
 //go:generate mockery --name GitLabClient
 type GitLabClient interface {
@@ -34,6 +38,16 @@ func (c *gitLabClient) ListProjectMergeRequests(projectID int, options *gitlab.L
 
 func (c *gitLabClient) GetMergeRequestApprovalsConfiguration(projectID int, mergeRequestID int) (*gitlab.MergeRequestApprovals, *gitlab.Response, error) {
 	return c.client.MergeRequestApprovals.GetConfiguration(projectID, mergeRequestID)
+}
+
+// newGitLabClient builds the wrapped GitLab client used by every entry point.
+func newGitLabClient(config *Config) (GitLabClient, error) {
+	glClient, err := gitlab.NewClient(config.GitLab.Token,
+		gitlab.WithBaseURL(config.GitLab.URL))
+	if err != nil {
+		return nil, fmt.Errorf("error creating GitLab client: %w", err)
+	}
+	return &gitLabClient{client: glClient}, nil
 }
 
 func fetchOpenedMergeRequests(config *Config, client GitLabClient) ([]*MergeRequestWithApprovals, error) {

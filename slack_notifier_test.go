@@ -99,6 +99,44 @@ func TestWebhookNotifier_EmptyNotifications(t *testing.T) {
 	assert.NoError(t, err)
 }
 
+func TestWebhookNotifier_Send_ActuallyPosts(t *testing.T) {
+	mockClient := mocks.NewSlackClient(t)
+	var captured []string
+	mockClient.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		msg := args.Get(0).(*slack.WebhookMessage)
+		captured = append(captured, msg.Text)
+	}).Return(nil)
+
+	n := &WebhookNotifier{webhookURL: "https://example.invalid", client: mockClient}
+	err := n.Send([]*Notification{
+		newSingleTargetNotification(StatusNeedsReview, "MR A", "https://gl/1", "alice", "U1"),
+	})
+
+	require.NoError(t, err)
+	require.Len(t, captured, 1)
+	assert.Contains(t, captured[0], "MR A")
+	assert.Contains(t, captured[0], "<@U1>")
+	mockClient.AssertExpectations(t)
+}
+
+// newSingleTargetNotification은 단일 대상 알림을 조립하는 헬퍼다.
+// 기존 newTestNotification과 달리 ProjectID/IID를 채운다.
+func newSingleTargetNotification(status MRStatus, title, url, author, slackID string) *Notification {
+	return &Notification{
+		MR: &ClassifiedMR{
+			Status: status,
+			MR: &MergeRequestWithApprovals{
+				ProjectID: 1,
+				MergeRequest: &gitlab.MergeRequest{
+					IID: 1, Title: title, WebURL: url,
+					Author: &gitlab.BasicUser{Username: author, Name: author},
+				},
+			},
+		},
+		Targets: []NotificationTarget{{SlackID: slackID, GitLabUsername: author, Role: RoleAuthor}},
+	}
+}
+
 // --- DMNotifier tests ---
 
 // mockSlackAPI implements SlackAPI for testing.

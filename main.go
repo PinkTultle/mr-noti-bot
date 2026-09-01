@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/reugn/go-quartz/job"
 	"github.com/reugn/go-quartz/quartz"
-	"github.com/xanzy/go-gitlab"
 )
 
 func main() {
@@ -131,13 +130,10 @@ func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
 }
 
 func execute(config *Config) error {
-	glClient, err := gitlab.NewClient(config.GitLab.Token,
-		gitlab.WithBaseURL(config.GitLab.URL))
+	gitlabClient, err := newGitLabClient(config)
 	if err != nil {
-		return fmt.Errorf("error creating GitLab client: %w", err)
+		return err
 	}
-
-	gitlabClient := &gitLabClient{client: glClient}
 
 	mrs, err := fetchOpenedMergeRequests(config, gitlabClient)
 	if err != nil {

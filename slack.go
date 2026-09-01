@@ -41,33 +41,28 @@ type Notifier interface {
 // per-target mentions.
 type WebhookNotifier struct {
 	webhookURL string
+	client     SlackClient // nil이면 Send에서 지연 생성
 }
 
 func (w *WebhookNotifier) Send(notifications []*Notification) error {
 	if len(notifications) == 0 {
 		return nil
 	}
+	if w.client == nil {
+		w.client = &slackClient{webhookURL: w.webhookURL}
+	}
 
 	grouped := groupNotificationsByStatus(notifications)
 	var text string
 
-	// Fixed order: most urgent statuses first.
-	for _, status := range []MRStatus{
-		StatusHasConflicts, StatusBlockingDiscussions, StatusChangesRequested,
-		StatusApprovedPendingMerge, StatusNeedsReview,
-	} {
+	for _, status := range summaryStatusOrder {
 		notifs, ok := grouped[status]
 		if !ok {
 			continue
 		}
-
 		text += statusMessages[status] + "\n"
 		for _, n := range notifs {
-			mrInfo := fmt.Sprintf("<%s|%s> (by %s)",
-				n.MR.MR.MergeRequest.WebURL,
-				n.MR.MR.MergeRequest.Title,
-				n.MR.MR.MergeRequest.Author.Name)
-			text += mrInfo + "\n"
+			text += formatNotificationLine(n) + "\n"
 			if len(n.Targets) > 0 {
 				text += "\u2192 " + formatMentions(n.Targets) + "\n"
 			}
@@ -75,7 +70,15 @@ func (w *WebhookNotifier) Send(notifications []*Notification) error {
 		text += "\n"
 	}
 
-	return slack.PostWebhook(w.webhookURL, &slack.WebhookMessage{Text: text})
+	return w.client.PostWebhook(&slack.WebhookMessage{Text: text})
+}
+
+// formatNotificationLine renders one MR line for webhook messages.
+func formatNotificationLine(n *Notification) string {
+	return fmt.Sprintf("<%s|%s> (by %s)",
+		n.MR.MR.MergeRequest.WebURL,
+		n.MR.MR.MergeRequest.Title,
+		n.MR.MR.MergeRequest.Author.Name)
 }
 
 // groupNotificationsByStatus groups notifications by their MR status
