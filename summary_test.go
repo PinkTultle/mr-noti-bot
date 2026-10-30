@@ -1,13 +1,17 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/flexoid/mergentle-reminder/mocks"
+	"github.com/slack-go/slack"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // newSummaryClassifiedMR is a test helper that builds a ClassifiedMR with a
@@ -15,7 +19,7 @@ import (
 func newSummaryClassifiedMR(title, authorName, url string, createdAt time.Time, status MRStatus) *ClassifiedMR {
 	return &ClassifiedMR{
 		MR: &MergeRequestWithApprovals{
-			MergeRequest: &gitlab.MergeRequest{
+			MergeRequest: &gitlab.BasicMergeRequest{
 				Title:     title,
 				WebURL:    url,
 				Author:    &gitlab.BasicUser{Name: authorName, Username: strings.ToLower(authorName)},
@@ -255,4 +259,155 @@ func TestResolveStaleDays_Default(t *testing.T) {
 
 	config2 := &Config{Summary: &SummaryConfig{}}
 	assert.Equal(t, 7, resolveStaleDays(config2))
+}
+
+// --- executeSummaryWithClient tests ---
+
+// newFetchMergeRequestsOptions builds the first-page options that
+// fetchOpenedMergeRequests always sends for a project's opened MRs.
+func newFetchMergeRequestsOptions() *gitlab.ListProjectMergeRequestsOptions {
+	return &gitlab.ListProjectMergeRequestsOptions{
+		State:   gitlab.Ptr("opened"),
+		OrderBy: gitlab.Ptr("updated_at"),
+		Sort:    gitlab.Ptr("desc"),
+		WIP:     gitlab.Ptr("no"),
+		ListOptions: gitlab.ListOptions{
+			Page:    1,
+			PerPage: 50,
+		},
+	}
+}
+
+func TestExecuteSummaryWithClient_PostsMessage(t *testing.T) {
+	config := &Config{Projects: []ConfigProject{{ID: 1}}}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
+			{
+				IID:       1,
+				Title:     "Fix login bug",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	var captured string
+	mockSlack.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		msg := args.Get(0).(*slack.WebhookMessage)
+		captured = msg.Text
+	}).Return(nil).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.NoError(t, err)
+	assert.Contains(t, captured, "Fix login bug")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
+}
+
+// TestExecuteSummaryWithClient_AppliesAuthorFilter is a regression test for
+// the bug this commit fixes: the author filter used to run only in
+// executeLegacy, so the summary path (like the smart path) silently ignored
+// config.Authors and reported every project's MRs regardless of author.
+func TestExecuteSummaryWithClient_AppliesAuthorFilter(t *testing.T) {
+	config := &Config{
+		Projects: []ConfigProject{{ID: 1}},
+		Authors:  []ConfigAuthor{{Username: "alice"}},
+	}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
+			{
+				IID:       1,
+				Title:     "alice의 MR",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+			{
+				IID:       2,
+				Title:     "bob의 MR",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/2",
+				Author:    &gitlab.BasicUser{Name: "Bob", Username: "bob"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(2)).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	var captured string
+	mockSlack.On("PostWebhook", mock.Anything).Run(func(args mock.Arguments) {
+		msg := args.Get(0).(*slack.WebhookMessage)
+		captured = msg.Text
+	}).Return(nil).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.NoError(t, err)
+	assert.Contains(t, captured, "alice의 MR")
+	assert.NotContains(t, captured, "bob의 MR", "authors 필터가 summary 경로에도 적용되어야 한다")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
+}
+
+func TestExecuteSummaryWithClient_PostWebhookError(t *testing.T) {
+	config := &Config{Projects: []ConfigProject{{ID: 1}}}
+	now := time.Date(2026, 4, 18, 9, 0, 0, 0, time.UTC)
+
+	mockGL := mocks.NewGitLabClient(t)
+	mockGL.On("ListProjectMergeRequests", int64(1), newFetchMergeRequestsOptions()).Return(
+		[]*gitlab.BasicMergeRequest{
+			{
+				IID:       1,
+				Title:     "Fix login bug",
+				WebURL:    "https://gitlab.com/test/project/-/merge_requests/1",
+				Author:    &gitlab.BasicUser{Name: "Alice", Username: "alice"},
+				CreatedAt: timePtr(now.Add(-time.Hour)),
+			},
+		},
+		&gitlab.Response{CurrentPage: 1, TotalPages: 1},
+		nil,
+	).Once()
+	mockGL.On("GetMergeRequestApprovalsConfiguration", int64(1), int64(1)).Return(
+		&gitlab.MergeRequestApprovals{ApprovedBy: []*gitlab.MergeRequestApproverUser{}},
+		&gitlab.Response{},
+		nil,
+	).Once()
+
+	mockSlack := mocks.NewSlackClient(t)
+	mockSlack.On("PostWebhook", mock.Anything).Return(errors.New("slack unavailable")).Once()
+
+	err := executeSummaryWithClient(config, mockGL, mockSlack, now)
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "error sending summary message 1/1")
+	assert.Contains(t, err.Error(), "slack unavailable")
+	mockGL.AssertExpectations(t)
+	mockSlack.AssertExpectations(t)
 }

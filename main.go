@@ -10,7 +10,6 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 	"github.com/reugn/go-quartz/job"
 	"github.com/reugn/go-quartz/quartz"
-	"github.com/xanzy/go-gitlab"
 )
 
 func main() {
@@ -61,7 +60,10 @@ func runScheduler(config *Config) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sched := quartz.NewStdScheduler()
+	sched, err := quartz.NewStdScheduler()
+	if err != nil {
+		log.Fatalf("Error creating scheduler: %v", err)
+	}
 	sched.Start(ctx)
 
 	if config.CronSchedule != "" {
@@ -111,8 +113,27 @@ func registerSummaryJob(sched quartz.Scheduler, config *Config) error {
 	return sched.ScheduleJob(quartz.NewJobDetail(j, quartz.NewJobKey("summaryJob")), trigger)
 }
 
+// Lambda job names, shared by normalizedJob and runLambdaJob's dispatch.
+const (
+	jobNotify  = "notify"
+	jobSummary = "summary"
+)
+
 // LambdaInput represents the input event for the Lambda function.
-type LambdaInput struct{}
+// EventBridge rules select which job to run: {"job":"summary"} for the
+// periodic report, anything else (or an empty event) for notifications.
+type LambdaInput struct {
+	Job string `json:"job"`
+}
+
+// normalizedJob returns the job to run, defaulting to "notify" so existing
+// EventBridge rules that send an empty event keep triggering notifications.
+func (i LambdaInput) normalizedJob() string {
+	if i.Job == "" {
+		return jobNotify
+	}
+	return i.Job
+}
 
 // HandleRequest is the main Lambda handler function.
 func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
@@ -122,27 +143,44 @@ func HandleRequest(ctx context.Context, input LambdaInput) (string, error) {
 		return "", err
 	}
 
-	err = execute(config)
-	if err != nil {
-		return "", err
-	}
+	return runLambdaJob(config, input)
+}
 
-	return "Success", nil
+// runLambdaJob dispatches to the job requested by input. Split out from
+// HandleRequest so it can be tested without going through loadConfig, which
+// reads real environment variables.
+func runLambdaJob(config *Config, input LambdaInput) (string, error) {
+	switch input.normalizedJob() {
+	case jobNotify:
+		if err := execute(config); err != nil {
+			return "", err
+		}
+		return "Success", nil
+	case jobSummary:
+		if err := executeSummary(config); err != nil {
+			return "", err
+		}
+		return "Success", nil
+	default:
+		return "", fmt.Errorf("unknown lambda job %q (expected %q or %q)", input.Job, jobNotify, jobSummary)
+	}
 }
 
 func execute(config *Config) error {
-	glClient, err := gitlab.NewClient(config.GitLab.Token,
-		gitlab.WithBaseURL(config.GitLab.URL))
+	gitlabClient, err := newGitLabClient(config)
 	if err != nil {
-		return fmt.Errorf("error creating GitLab client: %w", err)
+		return err
 	}
-
-	gitlabClient := &gitLabClient{client: glClient}
 
 	mrs, err := fetchOpenedMergeRequests(config, gitlabClient)
 	if err != nil {
 		return fmt.Errorf("error fetching opened merge requests: %w", err)
 	}
+
+	// authors 필터는 모드와 무관하게 적용한다.
+	// 예전에는 legacy 경로에서만 걸러 notification 블록을 추가하는 순간
+	// 설정이 조용히 무력화됐다.
+	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
 
 	// Legacy mode: no notification config → existing behavior
 	if config.Notification == nil {
@@ -153,10 +191,9 @@ func execute(config *Config) error {
 	return executeSmartNotification(config, mrs)
 }
 
-// executeLegacy preserves the original behavior: filter by author, format summary, send to webhook.
+// executeLegacy preserves the original behavior: format summary, send to webhook.
+// Author filtering happens once in execute(), before mode dispatch.
 func executeLegacy(config *Config, mrs []*MergeRequestWithApprovals) error {
-	mrs = filterMergeRequestsByAuthor(mrs, config.Authors)
-
 	if len(mrs) == 0 {
 		log.Println("No opened merge requests found.")
 		return nil
@@ -188,8 +225,16 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 	if config.State != nil {
 		statePath = config.State.Path
 	}
+	if statePath == "" {
+		log.Println("Warning: state.path is not configured; every run will re-notify all MRs")
+	}
 	prevState, err := loadState(statePath)
 	if err != nil {
+		if isStateCorrupted(err) {
+			// 손상된 상태로 빈 상태를 쓰면 전체 MR이 한꺼번에 재알림된다.
+			// 사람이 확인하도록 실패시킨다.
+			return fmt.Errorf("state file at %q is corrupted; inspect or delete it: %w", statePath, err)
+		}
 		log.Printf("Warning: could not load state: %v", err)
 		prevState = &NotificationState{Notifications: make(map[string]MRNotificationRecord)}
 	}
@@ -199,24 +244,36 @@ func executeSmartNotification(config *Config, mrs []*MergeRequestWithApprovals) 
 
 	if len(changed) == 0 {
 		log.Println("No MR status changes detected.")
-		return saveState(statePath, buildNewState(classified))
+		if err := saveState(statePath, buildNewState(classified)); err != nil {
+			return fmt.Errorf("error saving state: %w", err)
+		}
+		return nil
 	}
 
 	// 4. Resolve notification targets via user mapping
 	notifications := resolveNotificationTargets(changed, config.UserMapping)
 
 	// 5. Send via configured notifier
-	notifier := newNotifier(config)
+	notifier, err := newNotifier(config)
+	if err != nil {
+		return fmt.Errorf("error creating notifier: %w", err)
+	}
 	if err := notifier.Send(notifications); err != nil {
 		return fmt.Errorf("error sending notifications: %w", err)
 	}
 
 	// 6. Save current state
+	//
+	// 상태 저장 실패는 어느 분기에서든 동일하게 에러로 올린다.
+	// 예전에는 변경 없음 분기에서만 에러였고, 변경 있음 분기에서는
+	// 경고 로그로 넘어가 같은 장애가 MR 활동량에 따라 다르게 보고됐다.
+	// 이 분기는 알림이 이미 발송된 뒤이므로, 그 사실을 로그와 에러
+	// 메시지 모두에 남긴다 — 다음 실행에서 중복 발송될 것임을 알려준다.
+	log.Printf("Sent %d notifications for %d changed MRs.", len(notifications), len(changed))
 	if err := saveState(statePath, buildNewState(classified)); err != nil {
-		log.Printf("Warning: could not save state: %v", err)
+		return fmt.Errorf("notifications sent but state was not saved (next run will re-notify): %w", err)
 	}
 
-	log.Printf("Sent %d notifications for %d changed MRs.", len(notifications), len(changed))
 	return nil
 }
 
@@ -228,7 +285,10 @@ func formatMergeRequestsSummary(mrs []*MergeRequestWithApprovals) string {
 			approvedBy = "None"
 		}
 
-		createdAtStr := mr.MergeRequest.CreatedAt.Format("2 January 2006, 15:04 MST")
+		createdAtStr := "unknown"
+		if t, ok := mrCreatedAt(mr.MergeRequest); ok {
+			createdAtStr = t.Format("2 January 2006, 15:04 MST")
+		}
 
 		var extra string
 		if !mr.MergeRequest.BlockingDiscussionsResolved {
@@ -237,7 +297,7 @@ func formatMergeRequestsSummary(mrs []*MergeRequestWithApprovals) string {
 
 		summary += fmt.Sprintf(
 			":arrow_forward: <%s|%s>\n*Author:* %s\n*Created at:* %s\n*Approved by:* %s\n",
-			mr.MergeRequest.WebURL, mr.MergeRequest.Title, mr.MergeRequest.Author.Name, createdAtStr, approvedBy,
+			mr.MergeRequest.WebURL, mr.MergeRequest.Title, authorName(mr.MergeRequest), createdAtStr, approvedBy,
 		)
 
 		if extra != "" {
@@ -257,6 +317,12 @@ func filterMergeRequestsByAuthor(mrs []*MergeRequestWithApprovals, authors []Con
 
 	var filteredMRs []*MergeRequestWithApprovals
 	for _, mr := range mrs {
+		if mr.MergeRequest.Author == nil {
+			// author를 해석할 수 없는 MR(삭제된 사용자 등)은 어떤 author 필터에도
+			// 매칭시키지 않는다 — 필터는 "이 사람들의 MR만"이라는 좁히는 의도이므로,
+			// 정체불명 MR을 조용히 통과시키면 그 의도에 반한다.
+			continue
+		}
 		for _, user := range authors {
 			if (user.ID != 0 && user.ID == mr.MergeRequest.Author.ID) ||
 				(user.Username != "" && user.Username == mr.MergeRequest.Author.Username) {

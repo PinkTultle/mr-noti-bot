@@ -38,18 +38,7 @@ func classifyMergeRequest(mr *MergeRequestWithApprovals) *ClassifiedMR {
 		}
 	}
 
-	// Priority 2: Partial approval — some reviewers approved, but not all.
-	// Indicates changes were requested by non-approving reviewers.
-	if len(mr.ApprovedBy) > 0 &&
-		len(mr.ApprovedBy) < len(mr.MergeRequest.Reviewers) {
-		return &ClassifiedMR{
-			MR:          mr,
-			Status:      StatusChangesRequested,
-			TargetRoles: []TargetRole{RoleAuthor},
-		}
-	}
-
-	// Priority 3: Unresolved blocking discussions
+	// Priority 2: Unresolved blocking discussions
 	if !mr.MergeRequest.BlockingDiscussionsResolved {
 		return &ClassifiedMR{
 			MR:          mr,
@@ -58,17 +47,19 @@ func classifyMergeRequest(mr *MergeRequestWithApprovals) *ClassifiedMR {
 		}
 	}
 
-	// Priority 4: At least one approval and all discussions resolved
-	if len(mr.ApprovedBy) >= 1 && mr.MergeRequest.BlockingDiscussionsResolved {
-		return &ClassifiedMR{
-			MR:          mr,
-			Status:      StatusApprovedPendingMerge,
-			TargetRoles: []TargetRole{RoleAuthor},
+	// Priority 3: 지정된 리뷰어가 전원 승인했고 논의도 정리된 상태 → 머지 대기.
+	// ApprovedBy는 승인자 이름, Reviewers는 지정된 리뷰어라 개수 비교는
+	// 신뢰할 수 없다. 리뷰어가 지정되지 않은 MR은 승인 1건으로 머지 대기로 본다.
+	if len(mr.ApprovedBy) > 0 {
+		reviewerCount := len(mr.MergeRequest.Reviewers)
+		if reviewerCount == 0 || len(mr.ApprovedBy) >= reviewerCount {
+			return &ClassifiedMR{
+				MR:          mr,
+				Status:      StatusApprovedPendingMerge,
+				TargetRoles: []TargetRole{RoleAuthor},
+			}
 		}
-	}
-
-	// Priority 5: No approvals yet
-	if len(mr.ApprovedBy) == 0 {
+		// 부분 승인 — 아직 승인하지 않은 리뷰어를 기다리는 중이다.
 		return &ClassifiedMR{
 			MR:          mr,
 			Status:      StatusNeedsReview,
@@ -76,7 +67,7 @@ func classifyMergeRequest(mr *MergeRequestWithApprovals) *ClassifiedMR {
 		}
 	}
 
-	// Default fallback
+	// Priority 4: 승인 없음
 	return &ClassifiedMR{
 		MR:          mr,
 		Status:      StatusNeedsReview,

@@ -1,6 +1,7 @@
 gitlab:
   url: https://gitlab.com
   token: your-gitlab-token
+# legacy 알림 경로에서만 사용됨 — 아래 notification 블록을 설정하면 불필요
 slack:
   webhook_url: https://hooks.slack.com/services/your-slack-webhook-url
 projects:

@@ -1,20 +1,21 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/xanzy/go-gitlab"
+	gitlab "gitlab.com/gitlab-org/api/client-go"
 )
 
 // makeClassifiedMR creates a ClassifiedMR for testing with minimal fields.
-func makeClassifiedMR(projectID, iid int, status MRStatus) *ClassifiedMR {
+func makeClassifiedMR(projectID, iid int64, status MRStatus) *ClassifiedMR {
 	return &ClassifiedMR{
 		MR: &MergeRequestWithApprovals{
-			MergeRequest: &gitlab.MergeRequest{IID: iid},
+			MergeRequest: &gitlab.BasicMergeRequest{IID: iid},
 			ProjectID:    projectID,
 		},
 		Status: status,
@@ -89,7 +90,48 @@ func TestLoadState_InvalidJSON(t *testing.T) {
 	state, err := loadState(path)
 	assert.Error(t, err)
 	assert.Nil(t, state)
-	assert.Contains(t, err.Error(), "error parsing state file")
+	assert.True(t, isStateCorrupted(err), "invalid JSON must be classified as corrupted state")
+}
+
+func TestSaveState_IsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+
+	// 기존 유효 상태
+	require.NoError(t, saveState(path, &NotificationState{
+		Notifications: map[string]MRNotificationRecord{"1:1": {Status: StatusNeedsReview}},
+	}))
+
+	// 저장 도중 임시 파일이 남더라도 대상 파일은 항상 유효한 JSON이어야 한다
+	require.NoError(t, saveState(path, &NotificationState{
+		Notifications: map[string]MRNotificationRecord{"1:2": {Status: StatusHasConflicts}},
+	}))
+
+	data, err := os.ReadFile(path)
+	require.NoError(t, err)
+	var parsed NotificationState
+	require.NoError(t, json.Unmarshal(data, &parsed), "상태 파일은 항상 유효한 JSON이어야 한다")
+
+	// 임시 파일이 남아있지 않아야 한다
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	assert.Len(t, entries, 1, "임시 파일이 정리되지 않았다")
+}
+
+func TestLoadState_CorruptedFileIsDistinguishable(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "state.json")
+	require.NoError(t, os.WriteFile(path, []byte(`{"notifications": {"1:1"`), 0644)) // 잘린 JSON
+
+	_, err := loadState(path)
+	require.Error(t, err)
+	assert.True(t, isStateCorrupted(err), "파싱 실패는 손상으로 식별되어야 한다")
+}
+
+func TestLoadState_MissingFileIsNotAnError(t *testing.T) {
+	state, err := loadState(filepath.Join(t.TempDir(), "absent.json"))
+	require.NoError(t, err)
+	assert.Empty(t, state.Notifications)
 }
 
 func TestLoadState_NilNotificationsMap(t *testing.T) {

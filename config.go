@@ -28,15 +28,15 @@ type Config struct {
 }
 
 type ConfigGroup struct {
-	ID int `yaml:"id"`
+	ID int64 `yaml:"id"`
 }
 
 type ConfigProject struct {
-	ID int `yaml:"id"`
+	ID int64 `yaml:"id"`
 }
 
 type ConfigAuthor struct {
-	ID       int    `yaml:"id"`
+	ID       int64  `yaml:"id"`
 	Username string `yaml:"username"`
 }
 
@@ -56,7 +56,7 @@ type BotConfig struct {
 
 type UserMappingEntry struct {
 	GitLabUsername string `yaml:"gitlab_username"`
-	SlackID       string `yaml:"slack_id"`
+	SlackID        string `yaml:"slack_id"`
 }
 
 type StateConfig struct {
@@ -128,9 +128,6 @@ func loadConfig(env Env) (*Config, error) {
 	slackWebhookURL := env.Getenv("SLACK_WEBHOOK_URL")
 	if slackWebhookURL != "" {
 		config.Slack.WebhookURL = slackWebhookURL
-	}
-	if config.Slack.WebhookURL == "" {
-		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
 	}
 
 	if env := env.Getenv("AUTHORS"); env != "" {
@@ -208,6 +205,34 @@ func loadConfig(env Env) (*Config, error) {
 		return nil, fmt.Errorf("neither groups nor projects were provided")
 	}
 
+	// legacy 경로(notification 블록 없음)에서 execute()가 실제로 실행될 때만
+	// slack.webhook_url을 요구한다. summary.schedule만 설정된 구성에서는
+	// execute()가 아예 호출되지 않으므로 이 값이 소비되지 않는다.
+	// Lambda(HandleRequest)는 스케줄이 외부 EventBridge 규칙에 있어 매 호출마다
+	// execute()를 무조건 부르므로, 이 경우엔 스케줄 설정과 무관하게 항상 요구한다.
+	executeWillRun := env.Getenv("AWS_LAMBDA_RUNTIME_API") != "" ||
+		config.CronSchedule != "" ||
+		shouldRunOneShot(config)
+
+	if config.Notification == nil && executeWillRun && config.Slack.WebhookURL == "" {
+		return nil, fmt.Errorf("SLACK_WEBHOOK_URL environment variable is required")
+	}
+
+	if config.Notification != nil {
+		switch config.Notification.Mode {
+		case "dm":
+			if config.Notification.Bot == nil || config.Notification.Bot.Token == "" {
+				return nil, fmt.Errorf("NOTIFICATION_BOT_TOKEN (or notification.bot.token) is required when notification mode is \"dm\"")
+			}
+		case "webhook", "":
+			if config.Notification.Webhook == nil || config.Notification.Webhook.URL == "" {
+				return nil, fmt.Errorf("NOTIFICATION_WEBHOOK_URL (or notification.webhook.url) is required when notification mode is \"webhook\"")
+			}
+		default:
+			return nil, fmt.Errorf("unknown notification mode %q (expected \"webhook\" or \"dm\")", config.Notification.Mode)
+		}
+	}
+
 	return config, nil
 }
 
@@ -254,10 +279,10 @@ func parseIDsAsConfigGroups(env string) ([]ConfigGroup, error) {
 	return groups, nil
 }
 
-func parseIDs(env string) ([]int, error) {
-	var ids []int
+func parseIDs(env string) ([]int64, error) {
+	var ids []int64
 	for _, idStr := range strings.Split(env, ",") {
-		id, err := strconv.Atoi(idStr)
+		id, err := strconv.ParseInt(idStr, 10, 64)
 		if err != nil {
 			return nil, err
 		}
@@ -270,7 +295,7 @@ func parseAuthors(env string) ([]ConfigAuthor, error) {
 	var authors []ConfigAuthor
 	for _, authorStr := range strings.Split(env, ",") {
 		author := ConfigAuthor{}
-		if id, err := strconv.Atoi(authorStr); err == nil {
+		if id, err := strconv.ParseInt(authorStr, 10, 64); err == nil {
 			author.ID = id
 		} else {
 			author.Username = authorStr

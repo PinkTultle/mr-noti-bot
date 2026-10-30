@@ -29,7 +29,6 @@ func sendSlackMessage(client SlackClient, message string) error {
 
 // --- Notifier interface ---
 
-//go:generate mockery --name Notifier
 type Notifier interface {
 	Send(notifications []*Notification) error
 }
@@ -41,41 +40,82 @@ type Notifier interface {
 // per-target mentions.
 type WebhookNotifier struct {
 	webhookURL string
+	client     SlackClient // nil이면 Send에서 지연 생성
 }
 
 func (w *WebhookNotifier) Send(notifications []*Notification) error {
 	if len(notifications) == 0 {
 		return nil
 	}
+	if w.client == nil {
+		w.client = &slackClient{webhookURL: w.webhookURL}
+	}
 
+	messages := buildWebhookMessages(notifications)
+	for i, msg := range messages {
+		if err := w.client.PostWebhook(&slack.WebhookMessage{Text: msg}); err != nil {
+			return fmt.Errorf("error sending notification message %d/%d: %w", i+1, len(messages), err)
+		}
+	}
+	return nil
+}
+
+// buildWebhookMessages groups notifications by status and splits them into
+// chunks of at most maxMRsPerMessage MRs, mirroring the summary path.
+// Slack rejects webhook payloads beyond roughly 40,000 characters; on the
+// first run every open MR counts as changed, so a single message overflows.
+func buildWebhookMessages(notifications []*Notification) []string {
 	grouped := groupNotificationsByStatus(notifications)
-	var text string
 
-	// Fixed order: most urgent statuses first.
-	for _, status := range []MRStatus{
-		StatusHasConflicts, StatusBlockingDiscussions, StatusChangesRequested,
-		StatusApprovedPendingMerge, StatusNeedsReview,
-	} {
+	var messages []string
+	var current string
+	var count int
+
+	flush := func() {
+		if current != "" {
+			messages = append(messages, current)
+			current = ""
+			count = 0
+		}
+	}
+
+	for _, status := range summaryStatusOrder {
 		notifs, ok := grouped[status]
 		if !ok {
 			continue
 		}
 
-		text += statusMessages[status] + "\n"
+		header := statusMessages[status] + "\n"
+		needHeader := true // 항목이 실제로 뒤따를 때만 헤더를 넣는다 — 청크 경계에서 항목 없는 헤더만 남는 것을 방지
+
 		for _, n := range notifs {
-			mrInfo := fmt.Sprintf("<%s|%s> (by %s)",
-				n.MR.MR.MergeRequest.WebURL,
-				n.MR.MR.MergeRequest.Title,
-				n.MR.MR.MergeRequest.Author.Name)
-			text += mrInfo + "\n"
-			if len(n.Targets) > 0 {
-				text += "\u2192 " + formatMentions(n.Targets) + "\n"
+			if count >= maxMRsPerMessage {
+				flush()
+				needHeader = true
 			}
+			if needHeader {
+				current += header
+				needHeader = false
+			}
+			current += formatNotificationLine(n) + "\n"
+			if len(n.Targets) > 0 {
+				current += "\u2192 " + formatMentions(n.Targets) + "\n"
+			}
+			count++
 		}
-		text += "\n"
+		current += "\n"
 	}
 
-	return slack.PostWebhook(w.webhookURL, &slack.WebhookMessage{Text: text})
+	flush()
+	return messages
+}
+
+// formatNotificationLine renders one MR line for webhook messages.
+func formatNotificationLine(n *Notification) string {
+	return fmt.Sprintf("<%s|%s> (by %s)",
+		n.MR.MR.MergeRequest.WebURL,
+		n.MR.MR.MergeRequest.Title,
+		authorName(n.MR.MR.MergeRequest))
 }
 
 // groupNotificationsByStatus groups notifications by their MR status
@@ -114,23 +154,27 @@ func (d *DMNotifier) Send(notifications []*Notification) error {
 
 	byTarget := groupNotificationsByTarget(notifications)
 
+	// 한 대상이 실패해도 나머지 전송은 계속하되, 실패는 반드시 반환한다.
+	// nil을 반환하면 호출부가 saveState를 진행해 실패한 알림이
+	// 중복제거에 걸려 영구 유실된다.
+	var failed []string
 	for slackID, notifs := range byTarget {
 		text := "당신에게 액션이 필요한 MR이 있습니다:\n\n"
 		for _, n := range notifs {
-			text += fmt.Sprintf("%s\n\u2022 <%s|%s> (by %s)\n\n",
-				statusMessages[n.MR.Status],
-				n.MR.MR.MergeRequest.WebURL,
-				n.MR.MR.MergeRequest.Title,
-				n.MR.MR.MergeRequest.Author.Name)
+			text += fmt.Sprintf("%s\n\u2022 %s\n\n",
+				statusMessages[n.MR.Status], formatNotificationLine(n))
 		}
 
-		_, _, err := d.client.PostMessage(slackID, slack.MsgOptionText(text, false))
-		if err != nil {
+		if _, _, err := d.client.PostMessage(slackID, slack.MsgOptionText(text, false)); err != nil {
 			log.Printf("error sending DM to %s: %v", slackID, err)
-			// Continue sending to other targets
+			failed = append(failed, slackID)
 		}
 	}
 
+	if len(failed) > 0 {
+		return fmt.Errorf("failed to send DM to %d of %d targets: %v",
+			len(failed), len(byTarget), failed)
+	}
 	return nil
 }
 
@@ -168,15 +212,22 @@ func (l *LegacyNotifier) Send(notifications []*Notification) error {
 // --- Factory ---
 
 // newNotifier creates the appropriate Notifier based on config.
-// Returns LegacyNotifier when notification config is absent.
-func newNotifier(config *Config) Notifier {
+// Returns an error when the sub-block required by the selected mode is absent,
+// instead of panicking at the first scheduled tick.
+func newNotifier(config *Config) (Notifier, error) {
 	if config.Notification == nil {
-		return &LegacyNotifier{client: &slackClient{webhookURL: config.Slack.WebhookURL}}
+		return &LegacyNotifier{client: &slackClient{webhookURL: config.Slack.WebhookURL}}, nil
 	}
 	switch config.Notification.Mode {
 	case "dm":
-		return &DMNotifier{token: config.Notification.Bot.Token}
+		if config.Notification.Bot == nil || config.Notification.Bot.Token == "" {
+			return nil, fmt.Errorf("notification mode is %q but bot token is not configured", "dm")
+		}
+		return &DMNotifier{token: config.Notification.Bot.Token}, nil
 	default:
-		return &WebhookNotifier{webhookURL: config.Notification.Webhook.URL}
+		if config.Notification.Webhook == nil || config.Notification.Webhook.URL == "" {
+			return nil, fmt.Errorf("notification mode is %q but webhook url is not configured", config.Notification.Mode)
+		}
+		return &WebhookNotifier{webhookURL: config.Notification.Webhook.URL}, nil
 	}
 }
